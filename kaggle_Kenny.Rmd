@@ -1,0 +1,20 @@
+---
+title: "Kaggle_Kenny"
+output: pdf_document
+---
+
+```{r}
+train <- read.csv("G:/My Drive/UCLA/4th year/spring 2018/stats 101c/Kaggle project/train.csv")
+test <- read.csv("G:/My Drive/UCLA/4th year/spring 2018/stats 101c/Kaggle project/test.csv")
+```
+
+# first explore the data
+# look at how race affects mortality rate
+```{r}
+library(dplyr)
+train %>% group_by(SubjectRace) %>% summarise('F' = prop.table(table(Fatal))[1],
+                                              'N' = prop.table(table(Fatal))[2],
+                                              'U' = prop.table(table(Fatal))[3])
+```
+
+
