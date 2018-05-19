@@ -1,0 +1,4 @@
+* Things we've done
+** performing classification (LR, LDA, QDA, KNN) based on 
+*** SubjectRace
+*** SubjectRace + SubjectGender

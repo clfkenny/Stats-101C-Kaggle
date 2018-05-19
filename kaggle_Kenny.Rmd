@@ -1,15 +1,24 @@
 ---
 title: "Kaggle_Kenny"
 output: pdf_document
+editor_options: 
+  chunk_output_type: inline
 ---
 
 ```{r}
-train <- read.csv("G:/My Drive/UCLA/4th year/spring 2018/stats 101c/Kaggle project/train.csv")
-test <- read.csv("G:/My Drive/UCLA/4th year/spring 2018/stats 101c/Kaggle project/test.csv")
+library(dplyr)
+data <- read.csv("~/Dropbox/Stats-101C-Kaggle/train.csv")
+data <- data[,-c(1,3)] # remove ID column because won't help with predictions and # of subjects, since they're all 1.
+final_test <- test <- read.csv("~/Dropbox/Stats-101C-Kaggle/test.csv")
+
+# how many missing values are there?
+sum(is.na(train)) / (dim(train)[1] * dim(train)[2])
+# are the missing values due to not be recorded or because they don't actually exist?
+# for example, some notes mention that there was a shot, however the 'NumberofShots' variable says it's 0
 ```
 
-# first explore the data
-# look at how race affects mortality rate
+first explore the data \newline
+look at how race affects mortality rate
 ```{r}
 library(dplyr)
 train %>% group_by(SubjectRace) %>% summarise('F' = prop.table(table(Fatal))[1],
@@ -17,4 +26,164 @@ train %>% group_by(SubjectRace) %>% summarise('F' = prop.table(table(Fatal))[1],
                                               'U' = prop.table(table(Fatal))[3])
 ```
 
+Examining the Notes variable
+```{r}
+# looking at rows with notes that contain fatal
+View(train[!is.na(str_locate(train$Notes, 'fatal')[,1]),])
+View(test[!is.na(str_locate(test$Notes, 'fatal')[,1]),])
+```
 
+Splitting up into training and testing partitions
+```{r}
+n <- nrow(data)
+train_i <- sample(1:n, .7*n, replace=F)
+train <- train[train_i,]
+test <- train[-train_i,]
+```
+
+Creating dummy variables for only subject race and using LR, LDA, QDA, KNN; evaluating on val.set
+```{r}
+# looking at just subject race to predict fatality; removing NA's and unknowns
+train_no_na <- na.omit(train[,c('Fatal', 'SubjectRace')]) %>% filter(Fatal != 'U')
+train_no_na$Fatal <- as.character(train_no_na$Fatal)
+test_no_na <- na.omit(test[,c('Fatal', 'SubjectRace')]) %>% filter(Fatal != 'U')
+test_no_na$Fatal <- as.character(test_no_na$Fatal)
+sub_race_train_X <- data.frame(SubjectRace = train_no_na[,2])
+sub_race_train_y <- train_no_na$Fatal
+sub_race_test_X <- data.frame(SubjectRace = test_no_na[,2])
+sub_race_test_y <- test_no_na$Fatal
+sub_race_train_dummy <- model.matrix(Fatal ~ SubjectRace,train_no_na)[,-1]
+sub_race_test_dummy <- model.matrix(Fatal ~ SubjectRace, test_no_na)[,-1]
+
+# posterior probabilities of this training and testing set; this is probability of just classifying all as N:
+# training:
+prop.table(table(train_no_na$Fatal))
+#         F         N 
+# 0.3299712 0.6700288 
+# testing:
+prop.table(table(test_no_na$Fatal))
+#         F         N 
+# 0.2857143 0.7142857 
+
+# logistic regression
+lr.mod <- glm(Fatal ~ SubjectRace, train_no_na, family = 'binomial')
+lr_pred <- predict(lr.mod, newdata = sub_race_test_X, type = 'response')
+lr_pred_class <- ifelse(lr_pred >= 0.5, 'F', 'N')
+table(lr_pred_class, sub_race_test_y)
+mean(lr_pred_class == sub_race_test_y)
+# test classification rate of 27%; can just classify opposite of model to get class. rate of 73%
+# performs very poorly .....
+
+# LDA
+library(MASS)
+lda.mod <- lda(Fatal ~ SubjectRace, train_no_na)
+lda_pred <- predict(lda.mod, newdata = sub_race_test_X)
+table(lda_pred$class, sub_race_test_y)
+mean(lda_pred$class == sub_race_test_y)
+# test classification rate of 72%
+
+# QDA
+qda.mod <- qda(Fatal ~ SubjectRace, train_no_na)
+qda_pred <- predict(qda.mod, newdata = sub_race_test_X)
+table(qda_pred$class, sub_race_test_y)
+mean(qda_pred$class == sub_race_test_y)
+# test classification rate of 68%
+
+# KNN
+library(class)
+knn.mod <- knn(sub_race_train_dummy, sub_race_test_dummy, sub_race_train_y)
+table(knn.mod, sub_race_test_y)
+mean(knn.mod == sub_race_test_y)
+# test classification rate of 71%
+```
+
+**CONCLUSION: SUBJECT RACE ON ITS OWN DOES NOT CONTRIBUTE TO PREDICTIVE ACCURACY**
+
+Like above, but adding on subject gender dummy variables
+```{r}
+# looking at just subject race to predict fatality; removing NA's and unknowns
+# even tho objects have 'race', ignore bc i just copied format from above ...
+train_no_na <- na.omit(train[,c('Fatal', 'SubjectRace', 'SubjectGender')]) %>%
+  filter(Fatal != 'U' & SubjectGender != 'U' & SubjectGender != 'N/A')
+train_no_na$Fatal <- as.character(train_no_na$Fatal)
+train_no_na$SubjectGender <- as.character(train_no_na$SubjectGender)
+test_no_na <- na.omit(test[,c('Fatal', 'SubjectRace', 'SubjectGender')]) %>%
+  filter(Fatal != 'U' & SubjectGender != 'U' & SubjectGender != 'N/A')
+test_no_na$Fatal <- as.character(test_no_na$Fatal)
+test_no_na$SubjectGender <- as.character(test_no_na$SubjectGender)
+sub_race_train_X <- train_no_na[,-1]
+sub_race_train_y <- train_no_na$Fatal
+sub_race_test_X <- test_no_na[,-1]
+sub_race_test_y <- test_no_na$Fatal
+sub_race_train_dummy <- model.matrix(Fatal ~ SubjectRace,train_no_na)[,-1]
+sub_race_test_dummy <- model.matrix(Fatal ~ SubjectRace, test_no_na)[,-1]
+
+# posterior probabilities of this training and testing set; this is probability of just classifying all as N:
+# training:
+prop.table(table(train_no_na$Fatal))
+#         F         N 
+# 0.3809045 0.6190955 
+
+# testing:
+prop.table(table(test_no_na$Fatal))
+#         F         N 
+# 0.3452769 0.6547231 
+
+# logistic regression
+lr.mod <- glm(Fatal ~ SubjectRace + SubjectGender, train_no_na, family = 'binomial')
+lr_pred <- predict(lr.mod, newdata = sub_race_test_X, type = 'response')
+lr_pred_class <- ifelse(lr_pred >= 0.5, 'F', 'N')
+table(lr_pred_class, sub_race_test_y)
+mean(lr_pred_class == sub_race_test_y)
+# test classification rate of 27%; can just classify opposite of model to get class. rate of 73%
+# performs very poorly .....
+
+# LDA
+library(MASS)
+lda.mod <- lda(Fatal ~ SubjectRace + SubjectGender, train_no_na)
+lda_pred <- predict(lda.mod, newdata = sub_race_test_X)
+table(lda_pred$class, sub_race_test_y)
+mean(lda_pred$class == sub_race_test_y)
+# test classification rate of 65%
+
+# QDA
+qda.mod <- qda(Fatal ~ SubjectRace + SubjectGender, train_no_na)
+qda_pred <- predict(qda.mod, newdata = sub_race_test_X)
+table(qda_pred$class, sub_race_test_y)
+mean(qda_pred$class == sub_race_test_y)
+# test classification rate of 64%
+
+# KNN
+library(class)
+knn.mod <- knn(sub_race_train_dummy, sub_race_test_dummy, sub_race_train_y)
+table(knn.mod, sub_race_test_y)
+mean(knn.mod == sub_race_test_y)
+# test classification rate of 66%
+```
+
+
+
+
+
+
+
+
+
+
+Need to clean up data first before running any models
+
+```{r}
+# using logistic regression ...
+glm.obj <- glm(Fatal ~ NumberOfSubjects + SubjectArmed + SubjectRace +
+                 SubjectGender + NumberOfShots +
+                 NumberOfOfficers, data = train %>% filter(Fatal !='U'), family = 'binomial')
+glm.pred <- predict(glm.obj, type = 'response')
+glm_pred_class <- ifelse(glm.pred >= .5, 'N', 'F')
+
+predict(glm.obj, newdata = test %>% filter(Fatal!='U'), type = 'response')
+
+# using LDA
+lda.obj <- lda(Fatal ~ NumberOfSubjects + SubjectArmed + SubjectRace +
+                 SubjectGender + NumberOfShots +
+                 NumberOfOfficers, data = train)
+```
