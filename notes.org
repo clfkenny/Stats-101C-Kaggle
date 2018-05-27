@@ -1,4 +1,26 @@
-* Things we've done
-** performing classification (LR, LDA, QDA, KNN) based on 
-*** SubjectRace
-*** SubjectRace + SubjectGender
+#+LATEX_HEADER: \usepackage[margin=0.8in]{geometry}
+
+* What we've tried ...
+*** Data Preprocessing
+***** *Used training and validation set to perform classification (LR, LDA, QDA, KNN) based on dummy variables of:*
+****** SubjectRace (removed 'U' observations)
+******* Not much improvement over guessing 'N'
+****** SubjectRace + SubjectGender (removed 'N/A' and 'U' observations)
+******* Not much improvement ...
+****** SubjectRace + SubjectGender + NumberOfOfficers (replaced NA with 1)
+******* Not much improvement ...
+***** 
+*** *Looked at FullNarratives for keywords associated with fatalities and found the indexes with those keywords to change prediction to fatality after using the /Just Say No/ method*
+
+
+** using missForest to impute without labels leads to bad results, that's why been getting bad results when trying to impute the test data
+
+* Submission History
+**** /5.19.20/
+***** Submission 1: 0.67619 
+****** Implemented 'Just Say No' Method  
+***** Submission 2: 0.79761
+****** Implemented 'Just Say No' Method and also converted 180 "fatal" indexes rows (from looking at FullNarratives for keywords associated with higher fatalities) to "yes" 
+***** Submission 3: 0.8
+****** Like above, but after a more thorough inspection of some indexes, removed some false positive "fatal" indexes
+       

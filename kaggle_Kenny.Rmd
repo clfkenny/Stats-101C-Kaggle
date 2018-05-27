@@ -2,188 +2,1165 @@
 title: "Kaggle_Kenny"
 output: pdf_document
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
-```{r}
+```{r importing the data}
 library(dplyr)
+library(stringr)
 data <- read.csv("~/Dropbox/Stats-101C-Kaggle/train.csv")
-data <- data[,-c(1,3)] # remove ID column because won't help with predictions and # of subjects, since they're all 1.
-final_test <- test <- read.csv("~/Dropbox/Stats-101C-Kaggle/test.csv")
+data <- data[,-c(3)] # remove ID column because won't help with predictions and # of subjects, since they're all 1.
+final_test  <- read.csv("~/Dropbox/Stats-101C-Kaggle/test.csv")
+final_test <- final_test[,-c(3)]
 
 # how many missing values are there?
-sum(is.na(train)) / (dim(train)[1] * dim(train)[2])
+sum(is.na(data)) / (dim(data)[1] * dim(data)[2])
 # are the missing values due to not be recorded or because they don't actually exist?
 # for example, some notes mention that there was a shot, however the 'NumberofShots' variable says it's 0
+seed <- 123456
 ```
 
-first explore the data \newline
-look at how race affects mortality rate
-```{r}
+First explore the data \newline
+look at how different variables affect fatality rates to get an idea of which variables are important
+```{r some basic EDA}
 library(dplyr)
-train %>% group_by(SubjectRace) %>% summarise('F' = prop.table(table(Fatal))[1],
+data  %>% summarise('F' = prop.table(table(Fatal))[1],
+                     'N' = prop.table(table(Fatal))[2],
+                     'U' = prop.table(table(Fatal))[3],
+                     'n' = n()) %>% arrange(desc(n))
+# looking at the overall fatality rates
+
+data %>% group_by(SubjectRace) %>% summarise('F' = prop.table(table(Fatal))[1],
                                               'N' = prop.table(table(Fatal))[2],
-                                              'U' = prop.table(table(Fatal))[3])
+                                              'U' = prop.table(table(Fatal))[3],
+                                              'n' = n()) %>% arrange(desc(n))
+# not any striking differences; however B, L, and U have the largest nonfatalities
+
+data %>% group_by(SubjectArmed) %>% summarise('F' = prop.table(table(Fatal))[1],
+                                              'N' = prop.table(table(Fatal))[2],
+                                              'U' = prop.table(table(Fatal))[3],
+                                              'n' = n()) %>% arrange(desc(n))
+# fatality rates does not seem to change based on whether subject is armed or not
+
+data %>% group_by(SubjectGender) %>% summarise('F' = prop.table(table(Fatal))[1],
+                                              'N' = prop.table(table(Fatal))[2],
+                                              'U' = prop.table(table(Fatal))[3],
+                                              'n' = n()) %>% arrange(desc(n))
+# subject gender doesn't seem to affect fatality rates either ...
+
+data %>% group_by(SubjectAge) %>% summarise('F' = prop.table(table(Fatal))[1],
+                                              'N' = prop.table(table(Fatal))[2],
+                                              'U' = prop.table(table(Fatal))[3],
+                                              n = n()) %>% arrange(desc(n))
+# too many unknowns ...
+
+data %>% group_by(NumberOfShots) %>% summarise('F' = prop.table(table(Fatal))[1],
+                                              'N' = prop.table(table(Fatal))[2],
+                                              'U' = prop.table(table(Fatal))[3],
+                                              n = n()) %>% arrange(desc(n))
+# again, too many unknowns
+
+data %>% group_by(NumberOfOfficers) %>% summarise('F' = prop.table(table(Fatal))[1],
+                                              'N' = prop.table(table(Fatal))[2],
+                                              'U' = prop.table(table(Fatal))[3],
+                                              n = n()) %>% arrange(desc(n))
+# it does seem that the more officers there are, the higher the fatality rates, though n does decrease the more officers there are, so not sure if this info is reliable.
+
 ```
 
-Examining the Notes variable
-```{r}
-# looking at rows with notes that contain fatal
-View(train[!is.na(str_locate(train$Notes, 'fatal')[,1]),])
-View(test[!is.na(str_locate(test$Notes, 'fatal')[,1]),])
+# Words Associated with Fatalities
+Let's figure out what words are associated with fatalities by creating a simple function to tell me the proportion of fatalities associated with each word. Not perfect, since if a comma is attached to word, then it will count that as a different word. too lazy to debug
+```{r fatalality propotion of words function}
+fatal_words <- function(data){
+  # number of unique words
+  data$FullNarrative <- as.character(data$FullNarrative)
+  word_list <- tolower(unique(unlist(strsplit(data$FullNarrative, ' '))))
+  # yes means fatal
+  yes_list <- rep(0, length(word_list))
+  no_list <- rep(0, length(word_list))
+  u_list <- rep(0, length(word_list))
+  '%ni%' <- Negate('%in%')
+  for(row in 1:nrow(data)){
+    para_temp <- strsplit(data[row,'FullNarrative'], ' ')
+    temp <- c()
+    for(word in unlist(para_temp)){
+      word <- tolower(word)
+      word_i <- which(word_list == word)
+      if (word %ni% temp){
+        if(data[row,'Fatal'] == 'F'){
+          yes_list[word_i] <- yes_list[word_i] + 1
+          }
+        if(data[row,'Fatal'] == 'N')
+        {no_list[word_i] <- no_list[word_i] + 1
+          }
+        if(data[row,'Fatal'] == 'U'){
+          u_list[word_i] <- u_list[word_i] + 1
+        }
+        temp <- c(temp, word)
+      }
+    }
+    temp <- c()
+  }
+  data.frame(word = word_list,
+             fatalities = yes_list,
+             non_fatal = no_list)
+}
+
+fatal_prop <- fatal_words(data)
+fatal_prop$non_fatal[which(fatal_prop$non_fatal==0)] <- 1
+fatal_prop$prop <- unlist(fatal_prop[2]/fatal_prop[3])
+fatal_prop_ordered <- fatal_prop[order(-fatal_prop$prop),]
 ```
 
-Splitting up into training and testing partitions
-```{r}
-n <- nrow(data)
-train_i <- sample(1:n, .7*n, replace=F)
-train <- train[train_i,]
-test <- train[-train_i,]
+```{r fatal indexes}
+# index of killed
+# going to change these indexes to fatal, because these words are associated with more fatalities
+i <- which(!is.na(str_locate(final_test$Notes, 'kill'))[,1]==T)
+i2 <- which(!is.na(str_locate(final_test$FullNarrative, 'kill'))[,1] == T)
+i3 <- which(!is.na(str_locate(final_test$FullNarrative, 'decease')[,1]) == T)
+i4 <- which(!is.na(str_locate(final_test$FullNarrative, 'pronounce')[,1]) == T)
+i5 <- which(!is.na(str_locate(final_test$FullNarrative, 'die')[,1]) == T)
+i6 <- which(!is.na(str_locate(final_test$FullNarrative, 'demise')[,1]) == T)
+i7 <- which(!is.na(str_locate(final_test$FullNarrative, 'succumb')[,1]) == T)
+i8 <- which(!is.na(str_locate(final_test$FullNarrative, 'toxic')[,1]) == T)
+i9 <- which(!is.na(str_locate(final_test$FullNarrative, 'mortal')[,1]) == T)
+i10 <- which(!is.na(str_locate(final_test$FullNarrative, 'fatal')[,1]) == T)[-c(6:9)]
+i11 <- which(!is.na(str_locate(final_test$Notes, 'Death')[,1]) == T)
+fatal_index <- unique(c(i,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11))
+fatal_ids <- final_test[fatal_index, 'id']
+non_fatal_ids <- final_test[c(556,63,1241,1193,1225),'id']
+
+table(data[!is.na(str_locate(data$NatureOfStop, 'Critical')[,1]),]$Fatal)
+#View(final_test[which(!is.na(str_locate(final_test$FullNarrative, 'critical')[,1]) == T),])
+# reading some of the actual narratives to confirm fatality
+#View(final_test[i2,])
 ```
 
-Creating dummy variables for only subject race and using LR, LDA, QDA, KNN; evaluating on val.set
+
+I will follow this unorthodox approach, based on my logic and intuition.
+Just by simply replacing these "fatal indexes" of a "just say no" method, we increased our classification rate from 67% to 80%. This suggests that most of these indexes are, in fact, fatal indexes. I think that this is very, very valuable information to take advantage of when modeling. We will now create models and test them on the actual testing dataset. **For the model to be adequate, it must have a good CV test MSE estimate and it must satisfy these 3 conditions:**
+
+1) It must have a good CV test MSE.
+
+2) It must classify most of these so called "fatal indexes" as "F" rather than "N"
+  - My logic is that we already know that these indexes are truly "F" observations. Therefore, if the model classifies most of these as "F", then it would suggest that the model is indeed correctly classifying the observations.
+  
+3) Its classification proportion must be similar to the training Fatal proportion of F/N.
+
+
+# Data Preprocessing
+For this preliminary analysis, I will not be considering rows where Fatal == 'U'. Maybe later I'll do some sort of imputation
+
 ```{r}
-# looking at just subject race to predict fatality; removing NA's and unknowns
-train_no_na <- na.omit(train[,c('Fatal', 'SubjectRace')]) %>% filter(Fatal != 'U')
-train_no_na$Fatal <- as.character(train_no_na$Fatal)
-test_no_na <- na.omit(test[,c('Fatal', 'SubjectRace')]) %>% filter(Fatal != 'U')
-test_no_na$Fatal <- as.character(test_no_na$Fatal)
-sub_race_train_X <- data.frame(SubjectRace = train_no_na[,2])
-sub_race_train_y <- train_no_na$Fatal
-sub_race_test_X <- data.frame(SubjectRace = test_no_na[,2])
-sub_race_test_y <- test_no_na$Fatal
-sub_race_train_dummy <- model.matrix(Fatal ~ SubjectRace,train_no_na)[,-1]
-sub_race_test_dummy <- model.matrix(Fatal ~ SubjectRace, test_no_na)[,-1]
+rm_cols <- which(names(data)=='FullNarrative' | names(data)=='Notes')
+data2 <- data[, -rm_cols] # these 3 commands to start for cleaning training data
+data_noU <- data2[which(data2$Fatal!='U'),]
+data_noU$Fatal <- as.factor(as.character(data_noU$Fatal))
 
-# posterior probabilities of this training and testing set; this is probability of just classifying all as N:
-# training:
-prop.table(table(train_no_na$Fatal))
-#         F         N 
-# 0.3299712 0.6700288 
-# testing:
-prop.table(table(test_no_na$Fatal))
-#         F         N 
-# 0.2857143 0.7142857 
+# data2 <- final_test[,-c(12,14)] # these 2 commands to start for cleaning the testing data 
+# data_noU <- data2
 
-# logistic regression
-lr.mod <- glm(Fatal ~ SubjectRace, train_no_na, family = 'binomial')
-lr_pred <- predict(lr.mod, newdata = sub_race_test_X, type = 'response')
-lr_pred_class <- ifelse(lr_pred >= 0.5, 'F', 'N')
-table(lr_pred_class, sub_race_test_y)
-mean(lr_pred_class == sub_race_test_y)
-# test classification rate of 27%; can just classify opposite of model to get class. rate of 73%
-# performs very poorly .....
+# Let's see if different months are associated with higher fatality rates
+library(lubridate)
+Month <- month(data_noU$Date)
+data_noU$Month <- as.character(Month)
+# data_noU  %>% group_by(Month) %>% summarise('F' = prop.table(table(Fatal))[1],
+#                      'N' = prop.table(table(Fatal))[2],
+#                      'n' = n()) %>% arrange(desc(n))
+# appears that July has the lowest fatality rates 
+# Is the day of the week associated with higher fatality rates?
+Day <- wday(data_noU$Date)
+data_noU$Day <- as.character(Day)
+# data_noU  %>% group_by(Day) %>% summarise('F' = prop.table(table(Fatal))[1],
+#                      'N' = prop.table(table(Fatal))[2],
+#                      'n' = n()) %>% arrange(desc(n))
+# Nope, doesn't seem to have much correlation.
 
-# LDA
-library(MASS)
-lda.mod <- lda(Fatal ~ SubjectRace, train_no_na)
-lda_pred <- predict(lda.mod, newdata = sub_race_test_X)
-table(lda_pred$class, sub_race_test_y)
-mean(lda_pred$class == sub_race_test_y)
-# test classification rate of 72%
+```
 
-# QDA
-qda.mod <- qda(Fatal ~ SubjectRace, train_no_na)
-qda_pred <- predict(qda.mod, newdata = sub_race_test_X)
-table(qda_pred$class, sub_race_test_y)
-mean(qda_pred$class == sub_race_test_y)
-# test classification rate of 68%
+Let's try to incorporate some outside info
+```{r}
+library(readr)
+city_info <- read_delim("Desktop/Untitled.txt", 
+    "\t", escape_double = FALSE, col_names = FALSE, 
+    trim_ws = TRUE)
+names(city_info) <- c('rank2016', 'City', 'state', 'estimate2016', 'census2010',
+                      'change', 'sq_mi', 'sq_km', 'pop_density1', 'pop_density2', 'location')
+# remove whitespace and make lowercase
+data_noU$City <- tolower(apply(as.matrix(data_noU$City), 2,function(x)gsub('\\s+', '',x)))
+# do the same for the external data
+city_info$City <- tolower(apply(as.matrix(city_info$City), 2,function(x)gsub('\\s+', '',x)))
+city_info$City <- str_extract(city_info$City, '[a-z.]*')
+
+# cities that are in the dataset but not in external data
+unique(data_noU$City[!data_noU$City %in% city_info$City])
+# fixing these names
+data_noU[which(data_noU$City == 'charlottemecklenburg'), 'City'] <- 'charlotte' 
+data_noU[which(data_noU$City == 'miamidade'), 'City'] <- 'miami' 
+data_noU[which(data_noU$City == 'cityofmiami'), 'City'] <- 'miami' 
+data_noU[which(data_noU$City == 'baltimorecity'), 'City'] <- 'baltimore' 
+data_noU[which(data_noU$City == 'baltimorecounty'), 'City'] <- 'baltimore' 
+data_noU[which(data_noU$City == 'washingtondc'), 'City'] <- 'washington'
+data_noU[which(data_noU$City == 'dekalbcounty'), 'City'] <- 'atlanta'
+data_noU[which(data_noU$City == 'princegeorgescounty'), 'City'] <- 'washington' 
+data_noU[which(data_noU$City == 'fairfaxcounty'), 'City'] <- 'washington' 
+
+merged <- merge(x=data_noU, y=city_info, by='City')
+merged <- merged[!duplicated(merged$id),]
+
+# let's clean up the variables
+merged$pop_density1 <- as.numeric(gsub('\\D+','', merged$pop_density1))
+merged$pop_density2 <- as.numeric(gsub('\\D+','', merged$pop_density2))
+merged$sq_mi <- as.numeric(gsub('\\D+','', merged$sq_mi))
+merged$sq_km <- as.numeric(gsub('\\D+','', merged$sq_km))
+merged$change <- as.numeric(gsub('\\D+','', merged$change))
+
+# categorize population densities
+merged$pop_density_size <- as.factor(findInterval(merged$pop_density1, c(0,4000,10000)))
+
+
+```
+
+Let's fix the age variable and month/day and also assigning NA's as 0
+```{r}
+# assigning 0 to NA in order to keep the observations because model.matrix() removes all rows with NA's
+merged$NewAge <- as.numeric(str_extract(merged$SubjectAge, '[0-9]+'))
+merged$AgeGroup <- findInterval(merged$NewAge, c(0, 20, 40, 60, 80))
+merged[is.na(merged$AgeGroup), 'AgeGroup'] <- 0
+merged$AgeGroup <- as.numeric(merged$AgeGroup)
+merged[is.na(merged$Month), 'Month'] <- 0
+merged$Month <- as.factor(merged$Month)
+merged[is.na(merged$Day), 'Day'] <- 0
+merged$Day <- as.factor(merged$Day)
+merged$Seasons<- as.factor(findInterval(merged$Month, c(2,5,9,12)))
+merged$Weekend <- ifelse(merged$Day == 1 | merged$Day == 7, 1, 0)
+
+# assigning NA from number of officers to 1 (the mode)
+merged[is.na(merged$NumberOfOfficers), 'NumberOfOfficers'] <- 1
+merged$MoreThanOneOfficer <- ifelse(merged$NumberOfOfficers >1, 1, 0)
+
+# fixing subject armed; changing NA to 'U'
+merged[is.na(merged$SubjectArmed),'SubjectArmed'] <- 'U'
+
+# fixing subject gender, since such high proportion of males, i'm gonna assign all unknowns to M; didn't work so gonna try assigning non males as females
+merged[which(merged$SubjectGender=='N/A'), 'SubjectGender'] <- 'U'
+merged$SubjectGender <- as.factor(as.character(merged$SubjectGender))
+#merged[which(merged$SubjectGender != 'F'), 'SubjectGender'] <- 'M'
+# remove factors of gender
+#merged$SubjectGender <- as.character(merged$SubjectGender)
+
+# fixing NumberOfShots
+# first, assign all NA's to one 
+merged$NumberOfShots <- as.character(merged$NumberOfShots)
+merged[is.na(merged$NumberOfShots), 'NumberOfShots'] <- 1
+shots_list <- str_extract_all(merged$NumberOfShots, '[0-9]+')
+shots_clean <- c()
+for(i in 1:length(shots_list)){
+  shots_clean[i] <- sum(as.numeric(unlist(shots_list[i])))
+}
+merged$ShotsClean <- shots_clean
+merged[which(merged$ShotsClean==0), 'ShotsClean'] <- 1
+merged$MoreThanOneShot <- ifelse(merged$ShotsClean > 1, 1, 0)
+
+
+# getting the mode of the officer race
+Mode = function(x){ 
+  x2 <- strsplit(as.character(x), ';')
+  ta = table(x2)
+  tam = max(ta)
+  names(ta[which(ta ==tam)])[1]
+}
+main_race <- c()
+merged[is.na(merged$OfficerRace), 'OfficerRace'] <- 'U'
+for(i in 1:length(merged$OfficerRace)){
+  main_race[i] <- Mode(merged$OfficerRace[i])
+}
+merged$mainOfficerRace <- as.factor(substr(main_race,1,1))
+# getting mode of officer gender
+main_gender <- c()
+for(i in 1:length(merged$OfficerGender)){
+  main_gender[i] <- Mode(merged$OfficerGender[i])
+}
+merged$mainOfficerGender<- as.factor(substr(main_gender,1,1))
+
+
+# if there is a white officer or not?
+not_W_index <- is.na(str_locate(merged$OfficerRace, 'W'))[,1]
+merged$OfficerWhite <- 'W'
+merged[not_W_index, 'OfficerWhite'] <- 'NW'
+merged$OfficerWhite <- as.factor(merged$OfficerWhite)
+
+
+
+# Look at various proportions
+# merged  %>% group_by(ShotsClean) %>% summarise('F' = prop.table(table(Fatal))[1],
+#                      'N' = prop.table(table(Fatal))[2],
+#                      'n' = n()) %>% arrange(desc(n))
+```
+
+Function for merging and cleaning the dataset
+```{r}
+clean_up <- function(data, includeNA = F){
+  rm_cols <- which(names(data)=='FullNarrative' | names(data)=='Notes')
+  data2 <- data[, -rm_cols] 
+  data_noU <- data2
+  if('Fatal' %in% names(data) & includeNA == F){
+    data_noU <- data2[which(data2$Fatal!='U'),]
+    data_noU$Fatal <- as.factor(as.character(data_noU$Fatal))
+  }
+  
+  library(lubridate)
+  Month <- month(data_noU$Date)
+  data_noU$Month <- as.character(Month)
+  Day <- wday(data_noU$Date)
+  data_noU$Day <- as.character(Day)
+
+  library(readr)
+  city_info <- read_delim("Desktop/Untitled.txt", 
+      "\t", escape_double = FALSE, col_names = FALSE, 
+      trim_ws = TRUE)
+  names(city_info) <- c('rank2016', 'City', 'state', 'estimate2016', 'census2010',
+                        'change', 'sq_mi', 'sq_km', 'pop_density1', 'pop_density2', 'location')
+  # remove whitespace and make lowercase
+  data_noU$City <- tolower(apply(as.matrix(data_noU$City), 2,function(x)gsub('\\s+', '',x)))
+  # do the same for the external data
+  city_info$City <- tolower(apply(as.matrix(city_info$City), 2,function(x)gsub('\\s+', '',x)))
+  city_info$City <- str_extract(city_info$City, '[a-z.]*')
+  
+  # cities that are in the dataset but not in external data
+  unique(data_noU$City[!data_noU$City %in% city_info$City])
+  # fixing these names
+  data_noU[which(data_noU$City == 'charlottemecklenburg'), 'City'] <- 'charlotte' 
+  data_noU[which(data_noU$City == 'miamidade'), 'City'] <- 'miami' 
+  data_noU[which(data_noU$City == 'cityofmiami'), 'City'] <- 'miami' 
+  data_noU[which(data_noU$City == 'baltimorecity'), 'City'] <- 'baltimore' 
+  data_noU[which(data_noU$City == 'baltimorecounty'), 'City'] <- 'baltimore' 
+  data_noU[which(data_noU$City == 'washingtondc'), 'City'] <- 'washington'
+  data_noU[which(data_noU$City == 'dekalbcounty'), 'City'] <- 'atlanta'
+  data_noU[which(data_noU$City == 'princegeorgescounty'), 'City'] <- 'washington' 
+  data_noU[which(data_noU$City == 'fairfaxcounty'), 'City'] <- 'washington' 
+  
+  merged <- merge(x=data_noU, y=city_info, by='City')
+  merged <- merged[!duplicated(merged$id),]
+  
+  # let's clean up the variables
+  merged$pop_density1 <- as.numeric(gsub('\\D+','', merged$pop_density1))
+  merged$pop_density2 <- as.numeric(gsub('\\D+','', merged$pop_density2))
+  merged$sq_mi <- as.numeric(gsub('\\D+','', merged$sq_mi))
+  merged$sq_km <- as.numeric(gsub('\\D+','', merged$sq_km))
+  merged$change <- as.numeric(gsub('\\D+','', merged$change))
+  merged$state <- tolower(apply(as.matrix(merged$state), 2,function(x)gsub('\\s+', '',x)))
+  
+  # categorize population densities
+  merged$pop_density_size <- as.factor(findInterval(merged$pop_density1,
+                                                    c(0,2000,4000,6000,8000,10000)))
+  
+  east_coast <- c('maine','newhampshire', 'massachusetts', 'rhodeisland', 'connecticut', 'newyork', 'newjersey', 'delaware','maryland','virginia','northcarolina','southcarolina','georgia','florida')
+  west_coast <- c('california','oregon','washington')
+  merged$coast <- 'neither'
+  merged$coast[which(merged$state %in% east_coast)] <- 'east'
+  merged$coast[which(merged$state %in% west_coast)] <- 'west'
+  merged$coast <- as.factor(merged$coast)
+  
+  
+  
+  # assigning 0 to NA in order to keep the observations because model.matrix() removes all rows with NA's
+  merged$NewAge <- as.numeric(str_extract(merged$SubjectAge, '[0-9]+'))
+  merged[is.na(merged$NewAge), 'NewAge'] <- 0
+  merged$AgeGroup <- findInterval(merged$NewAge, c(0, 20, 40, 60, 80))
+  #merged$AgeGroup <- findInterval(merged$NewAge, c(0, 10, 20,30, 40,50, 60,70, 80))
+  merged[which(merged$NewAge == 0), 'AgeGroup'] <- 0
+  merged$AgeGroup <- as.numeric(merged$AgeGroup)
+  merged[is.na(merged$Month), 'Month'] <- 0
+  merged$Month <- as.factor(merged$Month)
+  merged[is.na(merged$Day), 'Day'] <- 0
+  merged$Day <- as.factor(merged$Day)
+  merged$Seasons<- as.factor(findInterval(merged$Month, c(2,5,9,12)))
+  merged$Weekend <- ifelse(merged$Day == 1 | merged$Day == 7, 1, 0)
+  
+  # assigning NA from number of officers to 1 (the mode)
+  merged[is.na(merged$NumberOfOfficers), 'NumberOfOfficers'] <- 1
+  merged$MoreThanOneOfficer <- ifelse(merged$NumberOfOfficers >1, 1, 0)
+  
+  # fixing subject armed; changing NA to 'U'
+  merged[is.na(merged$SubjectArmed),'SubjectArmed'] <- 'U'
+  
+  # fixing subject gender, since such high proportion of males, i'm gonna assign all unknowns to M; didn't work so gonna try assigning non males as females
+  merged[which(merged$SubjectGender=='N/A'), 'SubjectGender'] <- 'U'
+  merged$SubjectGender <- as.factor(substr(as.character(merged$SubjectGender),1,1))
+  #merged[which(merged$SubjectGender != 'F'), 'SubjectGender'] <- 'M'
+  # remove factors of gender
+  #merged$SubjectGender <- as.character(merged$SubjectGender)
+  
+  # fixing NumberOfShots
+  # first, assign all NA's to one 
+  merged$NumberOfShots <- as.character(merged$NumberOfShots)
+  merged[is.na(merged$NumberOfShots), 'NumberOfShots'] <- 1
+  shots_list <- str_extract_all(merged$NumberOfShots, '[0-9]+')
+  shots_clean <- c()
+  for(i in 1:length(shots_list)){
+    shots_clean[i] <- sum(as.numeric(unlist(shots_list[i])))
+  }
+  merged$ShotsClean <- shots_clean
+  merged[which(merged$ShotsClean==0), 'ShotsClean'] <- 1
+  merged$MoreThanOneShot <- ifelse(merged$ShotsClean > 1, 1, 0)
+  #merged[which(merged$ShotsClean>100), 'ShotsClean'] <- 45
+  
+  Mode = function(x){ 
+    x2 <- strsplit(as.character(x), ';')
+    ta = table(x2)
+    tam = max(ta)
+    names(ta[which(ta ==tam)])[1]
+  }
+  main_race <- c()
+  merged[is.na(merged$OfficerRace), 'OfficerRace'] <- 'U'
+  for(i in 1:length(merged$OfficerRace)){
+    main_race[i] <- Mode(merged$OfficerRace[i])
+  }
+  merged$mainOfficerRace <- as.factor(tolower(substr(main_race,1,1)))
+  merged$mainOfficerRace <- as.character(merged$mainOfficerRace)
+  # merging race n and o into u
+  merged[which(merged$mainOfficerRace=='m' | 
+                 merged$mainOfficerRace=='n' |
+                 merged$mainOfficerRace=='o'), 'mainOfficerRace'] <- 'u'
+  merged$mainOfficerRace <- as.factor(merged$mainOfficerRace)
+  
+  # getting mode of officer gender
+  main_gender <- c()
+  for(i in 1:length(merged$OfficerGender)){
+    main_gender[i] <- Mode(merged$OfficerGender[i])
+  }
+  merged$mainOfficerGender<- as.factor(substr(main_gender,1,1))
+  merged[which(merged$mainOfficerGender=='N'), 'mainOfficerGender'] <- 'M'
+  merged$mainOfficerGender <- droplevels(merged$mainOfficerGender)
+  
+  return(merged)
+}
+
+```
+
+# IMPUTATIONS
+Function for imputing datasets
+```{r imputation function}
+impute_clean_up <- function(data, includeF = TRUE){
+#######################################################
+  #### IMPUTATIONS ####
+  library(missForest)
+  if('Fatal' %in% names(data) & includeF==TRUE){
+    data[which(data$Fatal=='U'), 'Fatal'] <- NA
+    data$Fatal <- droplevels(data$Fatal)
+  }
+  # imputing Fatal does help with accuracy!
+  data[which(data$SubjectArmed=='U'), 'SubjectArmed'] <- NA
+  data$SubjectArmed <- droplevels(data$SubjectArmed)
+  data[which(data$SubjectRace=='U'), 'SubjectRace'] <- NA
+  data$SubjectRace <- droplevels(data$SubjectRace)
+  data[which(data$SubjectGender=='U'), 'SubjectGender'] <- NA
+  data$SubjectGender <- droplevels(data$SubjectGender)
+  
+  data[which(data$mainOfficerRace=='u'), 'mainOfficerRace'] <- NA
+  data$mainOfficerRace <- droplevels(data$mainOfficerRace)
+  data[which(data$mainOfficerGender=='U'), 'mainOfficerGender'] <- NA
+  data$mainOfficerGender <- droplevels(data$mainOfficerGender)
+  
+  data[which(data$NewAge == 0), 'NewAge'] <- NA
+  
+  data[which(data$Month=='0'), 'Month'] <- NA
+  data$Month <- droplevels(data$Month)
+  
+  data[which(data$Day=='0'), 'Day'] <- NA
+  data$Day <- droplevels(data$Day)
+
+   # imputing age group doesn't help
+  
+  # getting improvements if imputing fatal, subjectarmed, subjectrace, subjectgender at same time
+  
+  # wow, imputing age and DRASTIC improvement in validation set classification rate (~10%); for training dataset 
+  
+  if('Fatal' %in% names(data) & includeF==T){
+    impute_variables <- c('Fatal','SubjectArmed', 'SubjectRace', 'SubjectGender', 'NewAge',
+                        'mainOfficerRace','mainOfficerGender', 'Month', 'Day')
+  }
+  else{
+        impute_variables <- c('SubjectArmed', 'SubjectRace', 'SubjectGender', 'NewAge',
+                        'mainOfficerRace','mainOfficerGender', 'Month', 'Day')
+  }
+  
+  mforest <- missForest(xmis = data[,impute_variables],maxiter=10, ntree=100, parallelize = "no")
+  
+  data[,impute_variables] <- mforest$ximp
+  
+  return.obj <- list(data, mforest)
+  return(return.obj)
+}
+```
+
+```{r trying out imputation}
+# try imputing the datasets together and then separate out?
+train <- clean_up(data)
+test <- clean_up(final_test)
+
+set.seed(seed)
+# imputing together ########################################################################
+combined <- rbind(train[,-4], test)
+combined_imputed <- impute_clean_up(combined)
+combined_imputed[[2]]$OOBerror
+#        NRMSE          PFC 
+# 0.7225091757 0.2146977619 
+
+training <- cbind(Fatal = train$Fatal, combined_imputed[[1]][1:2811,])
+###############
+training <- impute_clean_up(train, includeF=T) # imputing without fatal
+training[[2]]
+training1 <- cbind(Fatal = train$Fatal, training[[1]])
+
+# don't use this method below
+#############################################################################################
+
+# impute on training first, then combine with testing, then impute together, then remove testing
+
+# imputing train alone
+set.seed(seed)
+training <- impute_clean_up(train)
+training[2] 
+# $OOBerror
+#        NRMSE          PFC 
+# 0.7028000678 0.1995952690 probably varies depending on seed set
+
+# imputing test alone
+testing <- impute_clean_up(test)
+testing[2]
+# $OOBerror
+#        NRMSE          PFC 
+# 0.7374443591 0.2262075573 maybe this higher error explains why imputing only on testing is bad
+
+# combining the imputed training with the unimputed testing and then imputing (basically using the information gained from imputing training to help impute testing)
+set.seed(seed)
+combined2 <- rbind(training[[1]][,-4], test)
+combined2_imputed <- impute_clean_up(combined2)
+combined2_imputed[2] #OOB error
+# $OOBerror
+#        NRMSE          PFC 
+# 0.6673021616 0.1589161743 
+
+# use this imputed test dataset to make predictions
+test.imputed.with.training <- combined2_imputed[[1]][2812:4211,]
+
+```
+```{r imputing with different target values; DOES NOT WORK}
+# to compare imputation accuracy with different target variables, so that see if can extend to the unlabeled testing dataset
+train <- clean_up(data)
+train_all_yes <- train
+train_all_yes$Fatal <- 'F'
+train_all_yes$Fatal <- as.factor(train_all_yes$Fatal)
+train_all_no <- train
+train_all_no$Fatal <- 'N'
+train_all_no$Fatal <- as.factor(train_all_no$Fatal)
+
+training <- impute_clean_up(train) 
+training[[2]] # increases predictive power 
+
+training.all.yes <- impute_clean_up(train_all_yes) 
+training.all.yes[[2]] 
+training.all.yes[[1]]$Fatal <- train$Fatal # now replacing with the true values to check accuracy
+# not good 
+
+training.all.no <- impute_clean_up(train_all_no) 
+training.all.no[[2]] 
+training.all.no[[1]]$Fatal <- train$Fatal
+
+# randomly assign 66% no, 34% yes
+n <- nrow(train)
+yes_index <- sample(1:n, .33*n)
+train_mixed <- train
+train_mixed[yes_index,'Fatal'] <- 'F'
+train_mixed[-yes_index,'Fatal'] <- 'N'
+training_mixed <- impute_clean_up(train_mixed)
+training_mixed[[2]]
+training_mixed[[1]]$Fatal <- train$Fatal
+
+# try predicting the variables using trained model, and then using those labels to help imputations?
+train_predicted <- train_data
+train_predicted$Fatal <- rF_mod$predicted
+train_predicted_impute <- impute_clean_up(train_predicted)
+train_predicted_impute[[2]]
+train_predicted_impute[[1]]$Fatal <- train_data$Fatal
+```
+
+This may have potential?
+```{r imputing unlabeled classes with help from training data 5/26/18}
+# essentially using the labeled data from training to help with imputation
+train <- clean_up(data)
+test <- clean_up(final_test)
+test$Fatal <- NA
+test$Fatal <- as.character(test$Fatal)
+test[fatal_index, 'Fatal'] <- 'F'
+test[c(556,63,1241,1193,1225), 'Fatal'] <- 'N'
+test$Fatal <- as.factor(test$Fatal)
+set.seed(seed)
+# imputing together ########################################################################
+combined <- rbind(train, test)
+combined_imputed <- impute_clean_up(combined)
+combined_imputed[[2]]$OOBerror
+
+
+training <- combined_imputed[[1]][1:2811,]
+
+testing <- combined_imputed[[1]][2812:4211,-4]
+testing_w_label <- combined_imputed[[1]][2812:4211,]
+
+```
+
+# Model Building
+```{r}
+# SubjectArmed makes predictions worse... also day and month..
+# AVAILABLE VARIABLES TO CHOOSE FROM:
+# SubjectRace, SubjectGender, AgeGroup, NumberOfOfficers, Month, Day, SubjectArmed, MoreThanOneOfficer,
+# ShotsClean, MoreThanOneShot, OfficerWhite, mainOfficerRace, mainOfficerGender
+
+# Based on trial and error, AgeGroup, subjectrace seems to help prediction...
+# NumberOfOfficers predicts better than MoreThanOneOfficer
+
+set.seed(seed)
+training2 <- clean_up(data, includeNA=F)
+############################################################################################
+# crime rate by state
+crime.rates <- read.delim("~/Desktop/crime rates.txt", header=FALSE)
+names(crime.rates) <- c('state', 'city', 'population', 'total.violent.crimes', 'murder', 'rape', 'robbery', 'assault', 'total_property', 'burglary', 'theft', 'motor.theft', 'arson')
+crime.rates$state <- tolower(apply(as.matrix(crime.rates$state), 2,function(x)gsub('\\s+', '',x)))
+crime.rates <- crime.rates[,-2]
+
+
+merged <- merge(x=training, y=crime.rates, by = 'state')
+merged <- merged[!duplicated(merged$id),]
+merged$violent_crime_category <- findInterval(merged$total.violent.crimes, c(0,200,600,2000))
+merged$total_property_cat <- findInterval(merged$total_property, c(0,2000,3000,3500, 4500,6500))
+merged$population2 <- as.numeric(gsub('\\D+','', merged$population))
+merged$ratio <- merged$total.violent.crimes/(merged$total.violent.crimes + merged$total_property)
+
+############################################################################################
+# race proportions by state
+race_prop <- read.csv("~/Desktop/raw_data.csv", header=T)
+race_prop <- race_prop[2:52,]
+race_prop$state <- tolower(apply(as.matrix(race_prop$Location), 2,function(x)gsub('\\s+', '',x)))
+race_prop$Asian <- as.character(race_prop$Asian)
+race_prop[which(race_prop$Asian == 'N/A'), 'Asian'] <- '0'
+race_prop$Asian <- as.numeric(race_prop$Asian)
+
+merged <- merge(x=training, y=race_prop, by='state')
+merged <- merged[!duplicated(merged$id),]
+############################################################################################
+
+```
+
+```{r}
+# pick what variables we want to train data on
+# don't think age group is helping
+# use day or weekend? ## month outperforms seasons; day outperforms weekend
+train_data <- na.omit(testing_w_label[, c('Fatal','SubjectRace',
+                                                 'SubjectArmed', 'ShotsClean', 'NewAge',
+                                   'Month', 'Day', 'estimate2016', 'mainOfficerRace'
+                                  )]) 
+#train_data[which(train_data$mainOfficerGender=='N'), 'mainOfficerGender'] <- 'M'
+#train_data$mainOfficerGender <- droplevels(train_data$mainOfficerGender)
+
+seed <- 12345
+n <- nrow(train_data)
+set.seed(seed)
+train_i <- sample(1:n,n*.8,replace=F )
+train_data_train <- train_data[train_i,]
+train_data_test <- train_data[-train_i,]
+train_X <- model.matrix(Fatal ~ ., data = train_data_train)[,-1]
+test_X <- model.matrix(Fatal ~ ., data = train_data_test)[,-1]
+
+prop.table(table(train_data_train$Fatal))
+prop.table(table(train_data_test$Fatal))
+```
+
+random forest; optimizing hyperparameters
+```{r}
+# RANDOM FOREST
+library(caret)
+rf_trcontrol_1 <- trainControl(method="cv", number=5, verboseIter = T, returnResamp = 'all',
+                              allowParallel = T, savePredictions = T, classProbs = T)
+rf_grid_1 <- expand.grid(.mtry=c(2:10))
+set.seed(seed)
+rf_model<-train(Fatal~.,data=train_data_train,
+                method="rf",
+                trControl=rf_trcontrol_1,
+                ntree=500,
+                tuneGrid = rf_grid_1,
+                prox=TRUE)
+View(rf_model$results) 
+
+library(randomForest)
+set.seed(seed)
+rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=500, mtry=7, importance=T)
+rF_mod
+rF_mod_pred_test <- predict(rF_mod, newdata = train_data_test)
+#rF_mod_pred_test <- predict(rF_mod, newdata = training2[,-4])
+table(rF_mod_pred_test, train_data_test$Fatal)
+#table(rF_mod_pred_test, training2$Fatal )
+mean(rF_mod_pred_test == train_data_test$Fatal)
+#mean(rF_mod_pred_test == training2$Fatal, na.rm=T)
+importance(rF_mod)
+```
+
+other unoptimized methods learned in class (don't seem as useful)
+```{r}
+# LOGISTIC REGRESSION
+lr <- glm(Fatal ~., train_data_train, family = 'binomial')
+lr_pred <- predict(lr, newdata= train_data_test, type = 'response')
+lr_pred_class <- ifelse(lr_pred >=0.5, 'N', 'F')
+table(lr_pred_class, train_data_test$Fatal)
+mean(lr_pred_class == train_data_test$Fatal)
 
 # KNN
 library(class)
-knn.mod <- knn(sub_race_train_dummy, sub_race_test_dummy, sub_race_train_y)
-table(knn.mod, sub_race_test_y)
-mean(knn.mod == sub_race_test_y)
-# test classification rate of 71%
+grid_search_knn <- function(train_X, test_X, train_y, test_y, k=1:20){
+  test_MSE_L <- c()
+  for(i in k){
+   knn.mod <- knn(train_X, test_X, train_y, k=i)
+   test_MSE_L[i] <- mean(knn.mod == test_y)
+  }
+  test_MSE_L
+}
+knn_test_MSE <- grid_search_knn(train_X, test_X, train_data_train$Fatal, train_data_test$Fatal)
+best_k <- which(knn_test_MSE == max(knn_test_MSE))
+knn_mod <- knn(train_X, test_X, train_data_train$Fatal, k = best_k[1])
+table(knn_mod, train_data_test$Fatal)
+mean(knn_mod==train_data_test$Fatal)
+
+# SVM
+library(e1071)
+svm_mod <- svm(train_X, label = train_data_train$response_dummy, scale = F, cost=20, kernel='linear')
+svm_pred <- predict(svm_mod, test_X)
+table(svm_pred, train_data_test$Fatal)
+# doesn't seem to work well
+
+# Neural Networks
+library(neuralnet)
+train_X_nn <- cbind(as.data.frame(train_X), Fatal = train_data_train$response_dummy)
+n <- colnames(train_X_nn)
+f <- as.formula(paste("Fatal ~", paste(n[!n %in% 'Fatal'], collapse = " + ")))
+nn_mod <- neuralnet(f, data =train_X_nn, hidden = c(5,3), linear.output=T)
+nn_results <- neuralnet::compute(nn_mod, test_X[,1:16])
+nn_results_class <- ifelse(nn_results$net.result>= 0.5, 'F', 'N')
+table(nn_results_class, train_data_test$Fatal)
+mean(nn_results_class==train_data_test$Fatal)
 ```
 
-**CONCLUSION: SUBJECT RACE ON ITS OWN DOES NOT CONTRIBUTE TO PREDICTIVE ACCURACY**
-
-Like above, but adding on subject gender dummy variables
+xgboost; optimizing the hyperparameters
 ```{r}
-# looking at just subject race to predict fatality; removing NA's and unknowns
-# even tho objects have 'race', ignore bc i just copied format from above ...
-train_no_na <- na.omit(train[,c('Fatal', 'SubjectRace', 'SubjectGender')]) %>%
-  filter(Fatal != 'U' & SubjectGender != 'U' & SubjectGender != 'N/A')
-train_no_na$Fatal <- as.character(train_no_na$Fatal)
-train_no_na$SubjectGender <- as.character(train_no_na$SubjectGender)
-test_no_na <- na.omit(test[,c('Fatal', 'SubjectRace', 'SubjectGender')]) %>%
-  filter(Fatal != 'U' & SubjectGender != 'U' & SubjectGender != 'N/A')
-test_no_na$Fatal <- as.character(test_no_na$Fatal)
-test_no_na$SubjectGender <- as.character(test_no_na$SubjectGender)
-sub_race_train_X <- train_no_na[,-1]
-sub_race_train_y <- train_no_na$Fatal
-sub_race_test_X <- test_no_na[,-1]
-sub_race_test_y <- test_no_na$Fatal
-sub_race_train_dummy <- model.matrix(Fatal ~ SubjectRace,train_no_na)[,-1]
-sub_race_test_dummy <- model.matrix(Fatal ~ SubjectRace, test_no_na)[,-1]
+library(caret)
+library(xgboost)
+# first gridsearch for best params
+set.seed(seed)
+xgb_grid_1 = expand.grid(
+  nrounds = seq(1,81,5),
+  eta = c(0.1, 0.01),
+  max_depth = c(2:10),
+  gamma = 1,
+  colsample_bytree=1,
+  min_child_weight = 1,
+  subsample = 1
+)
+xgb_trcontrol_1 = trainControl(
+  method = "cv",
+  number = 5,
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = 'all',                                                        
+  classProbs = TRUE,                                                           
+  #summaryFunction = twoClassSummary,
+  allowParallel = F,
+  savePredictions = TRUE
+)
+xgb_train_1 = train(
+  x = train_X,
+  y = as.factor(train_data_train$Fatal),
+  trControl = xgb_trcontrol_1,
+  tuneGrid = xgb_grid_1,
+  method = "xgbTree"
+  #metric = 'ROC'
+)
+View(xgb_train_1$results)
 
-# posterior probabilities of this training and testing set; this is probability of just classifying all as N:
-# training:
-prop.table(table(train_no_na$Fatal))
-#         F         N 
-# 0.3809045 0.6190955 
+# next, fit the model with the optimized parameters
 
-# testing:
-prop.table(table(test_no_na$Fatal))
-#         F         N 
-# 0.3452769 0.6547231 
+# best params so far: eta = 0.1, max.depth = 3, nthread=3, nrounds=100
+xgb_params_1 = list(
+  objective = "binary:logistic",                                              
+  eta = 0.1,                                                                 
+  max.depth = 10,                                                                                   
+  nthread=3
+)
+# when looking at roc metric, I want a high sensitivity?
+# sensitivity: the model will predict more 'F', will get more true positives but false negatives
+# specificty: model will predict more 'N', will get more true negatives but less false positives
+set.seed(seed)
+train_data_train$response_dummy <- ifelse(train_data_train$Fatal=='F', 1,0) #1 means fatal
+xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=56)
+xgb_pred <- predict(xgb, test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'F', 'N')
+table(xgb_pred_class, train_data_test$Fatal)
+mean(xgb_pred_class==train_data_test$Fatal)
+xgb.importance(model=xgb)
 
-# logistic regression
-lr.mod <- glm(Fatal ~ SubjectRace + SubjectGender, train_no_na, family = 'binomial')
-lr_pred <- predict(lr.mod, newdata = sub_race_test_X, type = 'response')
-lr_pred_class <- ifelse(lr_pred >= 0.5, 'F', 'N')
-table(lr_pred_class, sub_race_test_y)
-mean(lr_pred_class == sub_race_test_y)
-# test classification rate of 27%; can just classify opposite of model to get class. rate of 73%
-# performs very poorly .....
+# xgb_pred_class   F   N # specificyt
+#              F  47  15
+#              N 143 357
+# xgb_pred_class   F   N #sensitivity
+#              F  73  32
+#              N 117 340
+```
 
-# LDA
-library(MASS)
-lda.mod <- lda(Fatal ~ SubjectRace + SubjectGender, train_no_na)
-lda_pred <- predict(lda.mod, newdata = sub_race_test_X)
-table(lda_pred$class, sub_race_test_y)
-mean(lda_pred$class == sub_race_test_y)
-# test classification rate of 65%
+# Predictions
+```{r Submission 4 81.6%}
+# using xgboost + fatal indexes
+fin_test <- clean_up(final_test)
+test_data <- na.omit(fin_test[,c('SubjectRace', 'SubjectGender',
+                                   'AgeGroup', 'NumberOfOfficers', 'ShotsClean',
+                                   'Seasons', 'Weekend','estimate2016')])
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+xgb_pred <- predict(xgb, final_test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
 
-# QDA
-qda.mod <- qda(Fatal ~ SubjectRace + SubjectGender, train_no_na)
-qda_pred <- predict(qda.mod, newdata = sub_race_test_X)
-table(qda_pred$class, sub_race_test_y)
-mean(qda_pred$class == sub_race_test_y)
-# test classification rate of 64%
+test_df <- data.frame('id'=fin_test$id, 
+                      'Fatal' = xgb_pred_class)
 
-# KNN
-library(class)
-knn.mod <- knn(sub_race_train_dummy, sub_race_test_dummy, sub_race_train_y)
-table(knn.mod, sub_race_test_y)
-mean(knn.mod == sub_race_test_y)
-# test classification rate of 66%
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+
+# how many more ID's does this model include for 'Yes' besides the fatal_ids?
+in_submission <- submission[which(submission$Fatal=='Yes'),'id']
+in_test_df <- test_df[which(test_df$Fatal=='Yes'),'id']
+setdiff(union(in_submission,in_test_df ), intersect(in_submission,in_test_df))
+
+prop.table(table(test_df$Fatal))
+```
+
+```{r Submission 5 82.6%}
+# using intersect of xgboost and random forest + fatal indexes
+fin_test <- clean_up(final_test)
+test_data <- na.omit(fin_test[,c('SubjectRace', 'SubjectGender',
+                                   'AgeGroup', 'NumberOfOfficers', 'ShotsClean',
+                                   'Seasons', 'Weekend','estimate2016')])
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+
+xgb_pred <- predict(xgb, final_test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
+rF_mod_pred_test <- predict(rF_mod, newdata = test_data)
+rF_mod_pred_test <- ifelse(rF_mod_pred_test == 'F', 'Yes', 'No')
+
+test_df_xgb <- data.frame('id'=fin_test$id, 
+                      'Fatal' = xgb_pred_class)
+test_df_rF <- data.frame('id' = fin_test$id,
+                         'Fatal' = rF_mod_pred_test)
+xgb_yes_rows <- which(test_df_xgb$Fatal=='Yes')
+rF_yes_rows <- which(test_df_rF$Fatal=='Yes')
+# let's see the intersect for "yes"
+intersect <- intersect(xgb_yes_rows, rF_yes_rows)
+
+test_df <- data.frame('id' = fin_test$id,
+                      'Fatal' ='No')
+test_df$Fatal <- as.character(test_df$Fatal)
+test_df[intersect, 'Fatal'] <- 'Yes'
+
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+
+# how many more ID's does this model include for 'Yes' besides the fatal_ids?
+in_submission <- submission[which(submission$Fatal=='Yes'),'id']
+in_test_df <- test_df[which(test_df$Fatal=='Yes'),'id']
+setdiff(union(in_submission,in_test_df ), intersect(in_submission,in_test_df))
+
+prop.table(table(test_df$Fatal))
+```
+
+```{r Submission 6 (5/25/18)}
+# not going to assign fatal indexes, i want to see how well the model performs on its own.
+# trained RF using set.seed(123456)
+set.seed(123456)
+fin_test <- clean_up(final_test)
+test_data <- na.omit(fin_test[, c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'NumberOfOfficers', 'ShotsClean', 'NewAge',
+                                   'Month', 'Day', 'estimate2016', 'mainOfficerRace',
+                                'mainOfficerGender'
+                                  )]) 
+
+test_data$mainOfficerRace <- as.character(test_data$mainOfficerRace)
+test_data[which(test_data$mainOfficerRace=='m'), 'mainOfficerRace'] <- 'n'
+test_data$mainOfficerRace <- as.factor(test_data$mainOfficerRace)
+
+
+
+rF_mod_pred_test <- predict(rF_mod, newdata = test_data)
+rF_mod_pred_test <- ifelse(rF_mod_pred_test == 'F', 'Yes', 'No')
+test_df_rF <- data.frame('id' = fin_test$id,
+                         'Fatal' = rF_mod_pred_test)
+
+in_submission <- submission[which(submission$Fatal=='Yes'),'id']
+in_test_df <- test_df_rF[which(test_df_rF$Fatal=='Yes'),'id']
+length(setdiff(union(in_submission,in_test_df ), intersect(in_submission,in_test_df)))
+# different with 523 'yes'
+```
+
+```{r Submission 7 (5/25/18)}
+# trained xgboost
+set.seed(123456)
+fin_test <- clean_up(final_test)
+test_data <- na.omit(fin_test[, c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'NumberOfOfficers', 'ShotsClean', 'NewAge',
+                                   'Month', 'Day', 'estimate2016', 'mainOfficerRace',
+                                'mainOfficerGender'
+                                  )]) 
+test_data$mainOfficerRace <- as.character(test_data$mainOfficerRace)
+test_data[which(test_data$mainOfficerRace=='m'), 'mainOfficerRace'] <- 'n'
+test_data$mainOfficerRace <- as.factor(test_data$mainOfficerRace)
+
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+xgb_pred <- predict(xgb, final_test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
+
+test_df_xgb <- data.frame('id'=fin_test$id, 
+                      'Fatal' = xgb_pred_class)
+
+in_submission <- submission[which(submission$Fatal=='Yes'),'id']
+in_test_df <- test_df_xgb[which(test_df_xgb$Fatal=='Yes'),'id']
+length(setdiff(union(in_submission,in_test_df ), intersect(in_submission,in_test_df)))
+# difference in "yes" by 400
+
+```
+
+```{r Submission 8 (5/25/18)}
+
+set.seed(123456)
+fin_test <- clean_up(final_test)
+test_data <- na.omit(fin_test[, c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'NumberOfOfficers', 'ShotsClean', 'NewAge',
+                                   'Month', 'Day', 'estimate2016', 'mainOfficerRace',
+                                'mainOfficerGender'
+                                  )]) 
+test_data$mainOfficerRace <- as.character(test_data$mainOfficerRace)
+test_data[which(test_data$mainOfficerRace=='m'), 'mainOfficerRace'] <- 'n'
+test_data$mainOfficerRace <- as.factor(test_data$mainOfficerRace)
+
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+xgb_pred <- predict(xgb, final_test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
+test_df <- data.frame('id'=fin_test$id, 
+                      'Fatal' = xgb_pred_class)
+
+
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+```
+
+Something wrong with imputing the test dataset, trying to figure out what b.c imputing training dataset gives great results. Figured out why. Because we need supervised imputation 
+
+```{r Submission 9 (5/26/18) 70%...}
+# try imputing the datasets together and then separate out?
+train <- clean_up(data)
+test <- clean_up(final_test)
+
+# imputing together
+combined <- rbind(train[,-4], test)
+combined_imputed <- impute_clean_up(combined)
+combined_imputed$OOBerror
+train_imputed <- cbind(combined_imputed[1:2811,], Fatal = train[1:2811,'Fatal'])
+
+# imputing train alone; training random forest model on this datset
+training <- impute_clean_up(train)
+training[2]
+
+# imputing test alone
+testing <- impute_clean_up(test)
+testing[2]
+
+# impute on training first, then combine with testing, then impute together, then remove testing
+combined2 <- rbind(training[[1]][,-4], test)
+combined2_imputed <- impute_clean_up(combined2)
+combined2_imputed[2] #OOB error
+test.imputed.with.training <- combined2_imputed[[1]][2812:4211,]
+
+
+test_data <- na.omit(test.imputed.with.training[, c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'NumberOfOfficers', 'ShotsClean', 'NewAge',
+                                   'Month', 'Day', 'estimate2016', 'mainOfficerRace',
+                                'mainOfficerGender'
+                                  )]) 
+test_data$mainOfficerGender <- droplevels(test_data$mainOfficerGender)
+
+rF_mod_pred_test <- predict(rF_mod, newdata = test_data)
+rF_mod_pred_test <- ifelse(rF_mod_pred_test == 'F', 'Yes', 'No')
+test_df_rF <- data.frame('id' = test$id,
+                         'Fatal' = rF_mod_pred_test)
+
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+xgb_pred <- predict(xgb, final_test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
+
+test_df_xgb <- data.frame('id'=test$id, 
+                      'Fatal' = xgb_pred_class)
+
+xgb_yes_rows <- which(test_df_xgb$Fatal=='Yes')
+rF_yes_rows <- which(test_df_rF$Fatal=='Yes')
+# let's see the intersect for "yes"
+intersect <- intersect(xgb_yes_rows, rF_yes_rows)
+
+test_df <- data.frame('id' = test$id,
+                      'Fatal' ='No')
+test_df$Fatal <- as.character(test_df$Fatal)
+test_df[intersect, 'Fatal'] <- 'Yes'
+
+
 ```
 
 
+```{r Submission 10 (5/26/18)}
+# run the same code as previous but add the fatal indexes
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+
+# number of intersections with fatal_ids
+length(intersect(test_df_xgb[xgb_yes_rows,'id'], fatal_ids))
+length(intersect(test_df_rF[rF_yes_rows,'id'], fatal_ids))
+length(intersect(test_df[intersect,'id'], fatal_ids))
 
 
-
-
-
-
-
-
-Need to clean up data first before running any models
-
-```{r}
-# using logistic regression ...
-glm.obj <- glm(Fatal ~ NumberOfSubjects + SubjectArmed + SubjectRace +
-                 SubjectGender + NumberOfShots +
-                 NumberOfOfficers, data = train %>% filter(Fatal !='U'), family = 'binomial')
-glm.pred <- predict(glm.obj, type = 'response')
-glm_pred_class <- ifelse(glm.pred >= .5, 'N', 'F')
-
-predict(glm.obj, newdata = test %>% filter(Fatal!='U'), type = 'response')
-
-# using LDA
-lda.obj <- lda(Fatal ~ NumberOfSubjects + SubjectArmed + SubjectRace +
-                 SubjectGender + NumberOfShots +
-                 NumberOfOfficers, data = train)
 ```
+
+```{r Submission 11 5/26/18 imputing the labels lol, rather than predicting from model}
+#treating unlabeled test data as NA and imputing those after combining with training data
+test_df <- data.frame('id' = testing$id,
+                      'Fatal' = testing$Fatal)
+test_df$Fatal <- ifelse(test_df$Fatal == 'F', 'Yes', 'No')
+prop.table(table(test_df$Fatal))
+
+yes_rows <- which(test_df$Fatal=='Yes')
+length(intersect(test_df[yes_rows,'id'], fatal_ids))
+
+```
+
+```{r, Submission 12 5/27/18}
+# same idea as above but using predicted labels from model rather than imputed
+# essentially using the labeled data from training to help with imputation
+train <- clean_up(data)
+test <- clean_up(final_test)
+test$Fatal <- NA
+test$Fatal <- as.character(test$Fatal)
+test[fatal_index, 'Fatal'] <- 'F'
+test[c(556,63,1241,1193,1225), 'Fatal'] <- 'N'
+test$Fatal <- as.factor(test$Fatal)
+set.seed(seed)
+# imputing together ########################################################################
+combined <- rbind(train, test)
+combined_imputed <- impute_clean_up(combined)
+combined_imputed[[2]]$OOBerror
+
+training <- combined_imputed[[1]][1:2811,]
+testing <- combined_imputed[[1]][2812:4211,-4]
+# train model on this training data, so can predict the testing data!
+
+rF_mod_pred_test <- predict(rF_mod, newdata = testing)
+rF_mod_pred_test <- ifelse(rF_mod_pred_test == 'F', 'Yes', 'No')
+test_df_rF <- data.frame('id' = testing$id,
+                         'Fatal' = rF_mod_pred_test)
+prop.table(table(rF_mod_pred_test))
+
+yes_rows <- which(test_df_rF$Fatal=='Yes')
+length(intersect(test_df_rF[yes_rows,'id'], fatal_ids))
+
+```
+
+```{r Submission 13 5/27/18}
+# run code from submission 12
+# include fatal indexes
+i_fatal <- as.numeric(rownames(subset(test_df_rF, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df_rF, id %in% non_fatal_ids)))
+test_df_rF[i_fatal, 'Fatal'] <- 'Yes'
+test_df_rF[i_nonFatal, 'Fatal'] <- 'No'
+### choosing to not include fatal indexes for now
+
+prop.table(table(test_df_rF$Fatal))
+```
+
+```{r Submission 14 5/27/18}
+# using ensemble model from imputation (same method as Submission 12 and 13) but will now use intersection of xgboost and random forest to set the indexes
+
+test_data <- na.omit(testing[, c('SubjectRace', 'SubjectGender',
+                                                 'SubjectArmed',
+                                   'NumberOfOfficers', 'ShotsClean', 'NewAge',
+                                   'Month', 'Day', 'estimate2016', 'mainOfficerRace',
+                                'mainOfficerGender'
+                                  )]) 
+
+
+rF_mod_pred_test <- predict(rF_mod, newdata = test_data)
+rF_mod_pred_test <- ifelse(rF_mod_pred_test == 'F', 'Yes', 'No')
+test_df_rF <- data.frame('id' = testing$id,
+                         'Fatal' = rF_mod_pred_test)
+
+
+
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+xgb_pred <- predict(xgb, final_test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
+test_df_xgb <- data.frame('id'=testing$id, 
+                      'Fatal' = xgb_pred_class)
+
+xgb_yes_rows <- which(test_df_xgb$Fatal=='Yes')
+rF_yes_rows <- which(test_df_rF$Fatal=='Yes')
+# let's see the intersect for "yes"
+intersect <- intersect(xgb_yes_rows, rF_yes_rows)
+test_df <- data.frame('id' = test$id,
+                      'Fatal' ='No')
+test_df$Fatal <- as.character(test_df$Fatal)
+test_df[intersect, 'Fatal'] <- 'Yes'
+
+length(intersect(test_df[which(test_df$Fatal=='Yes'),'id'], fatal_ids))
+
+prop.table(table(test_df$Fatal))
+
+# adding the fatal indexes
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+
+prop.table(table(test_df$Fatal))
+
+```
+
+# Submission
+```{r Submissions}
+submission <- data.frame(id = final_test$id,
+                         Fatal = 'No')
+submission$Fatal <- as.character(submission$Fatal)
+
+submission[fatal_index, 'Fatal'] <- 'Yes'
+# from fatal_index, take out 556, 63, 1241, 1193, 1225
+submission[c(556,63,1241,1193,1225), 'Fatal'] <- 'No'
+
+as.numeric(rownames(subset(submission, id %in% fatal_ids)))
+submission[which(submission$id =='9055'),]
+test_df[which(test_df$id=='9055'),]
+# intersect(i, fatal_index)
+
+write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submission14.csv', row.names=F)
+
+# submission 1: 67%; just said no to everything
+# submission 2: 79%; converted 180 "fatal" rows to 'Yes'
+# submission 3: 80%; removed 5 of those 'fatal' rows back to 'No' bc the narratives don't imply fatalities
+
+```
+
