@@ -470,6 +470,8 @@ impute_clean_up <- function(data, includeF = TRUE){
   
   data[which(data$Day=='0'), 'Day'] <- NA
   data$Day <- droplevels(data$Day)
+  
+  data$state <- as.factor(data$state)
 
    # imputing age group doesn't help
   
@@ -611,6 +613,12 @@ testing_w_label <- combined_imputed[[1]][2812:4211,]
 
 ```
 
+```{r}
+train <- clean_up(data)
+training <- impute_clean_up(train)
+
+```
+
 # Model Building
 ```{r}
 # SubjectArmed makes predictions worse... also day and month..
@@ -622,7 +630,10 @@ testing_w_label <- combined_imputed[[1]][2812:4211,]
 # NumberOfOfficers predicts better than MoreThanOneOfficer
 
 set.seed(seed)
-training2 <- clean_up(data, includeNA=F)
+training <- clean_up(data, includeNA=F)
+write.csv(training, '~/dropbox/stats-101c-kaggle/Datasets/cleaned_merged1.csv', row.names=F)
+testing <- clean_up(final_test)
+write.csv(testing, '~/dropbox/stats-101c-kaggle/Datasets/test_clean_merged.csv', row.names=F)
 ############################################################################################
 # crime rate by state
 crime.rates <- read.delim("~/Desktop/crime rates.txt", header=FALSE)
@@ -657,10 +668,12 @@ merged <- merged[!duplicated(merged$id),]
 # pick what variables we want to train data on
 # don't think age group is helping
 # use day or weekend? ## month outperforms seasons; day outperforms weekend
-train_data <- na.omit(testing_w_label[, c('Fatal','SubjectRace',
-                                                 'SubjectArmed', 'ShotsClean', 'NewAge',
-                                   'Month', 'Day', 'estimate2016', 'mainOfficerRace'
-                                  )]) 
+training[training$AgeGroup==0, 'AgeGroup'] <- 5
+
+train_data <- na.omit(training[[1]][, c('Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'NewAge', 'NumberOfOfficers', 'ShotsClean',
+                                   'Month', 'Day','estimate2016', 'mainOfficerRace')
+                                  ]) 
 #train_data[which(train_data$mainOfficerGender=='N'), 'mainOfficerGender'] <- 'M'
 #train_data$mainOfficerGender <- droplevels(train_data$mainOfficerGender)
 
@@ -695,7 +708,7 @@ View(rf_model$results)
 
 library(randomForest)
 set.seed(seed)
-rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=500, mtry=7, importance=T)
+rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=500, mtry=7, importance=T, maxnodes=5)
 rF_mod
 rF_mod_pred_test <- predict(rF_mod, newdata = train_data_test)
 #rF_mod_pred_test <- predict(rF_mod, newdata = training2[,-4])
@@ -792,7 +805,7 @@ View(xgb_train_1$results)
 xgb_params_1 = list(
   objective = "binary:logistic",                                              
   eta = 0.1,                                                                 
-  max.depth = 10,                                                                                   
+  max.depth = 3,                                                                                   
   nthread=3
 )
 # when looking at roc metric, I want a high sensitivity?
@@ -1051,7 +1064,7 @@ length(intersect(test_df[yes_rows,'id'], fatal_ids))
 
 ```
 
-```{r, Submission 12 5/27/18}
+```{r, Submission 12 (didn't submit) 5/27/18}
 # same idea as above but using predicted labels from model rather than imputed
 # essentially using the labeled data from training to help with imputation
 train <- clean_up(data)
@@ -1082,19 +1095,18 @@ length(intersect(test_df_rF[yes_rows,'id'], fatal_ids))
 
 ```
 
-```{r Submission 13 5/27/18}
+```{r Submission 12 5/27/18}
 # run code from submission 12
 # include fatal indexes
 i_fatal <- as.numeric(rownames(subset(test_df_rF, id %in% fatal_ids)))
 i_nonFatal <- as.numeric(rownames(subset(test_df_rF, id %in% non_fatal_ids)))
 test_df_rF[i_fatal, 'Fatal'] <- 'Yes'
 test_df_rF[i_nonFatal, 'Fatal'] <- 'No'
-### choosing to not include fatal indexes for now
 
 prop.table(table(test_df_rF$Fatal))
 ```
 
-```{r Submission 14 5/27/18}
+```{r Submission 13 5/27/18}
 # using ensemble model from imputation (same method as Submission 12 and 13) but will now use intersection of xgboost and random forest to set the indexes
 
 test_data <- na.omit(testing[, c('SubjectRace', 'SubjectGender',
@@ -1156,7 +1168,7 @@ submission[which(submission$id =='9055'),]
 test_df[which(test_df$id=='9055'),]
 # intersect(i, fatal_index)
 
-write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submission14.csv', row.names=F)
+write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission13.csv', row.names=F)
 
 # submission 1: 67%; just said no to everything
 # submission 2: 79%; converted 180 "fatal" rows to 'Yes'
@@ -1164,3 +1176,47 @@ write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submission14.csv', row.names=F)
 
 ```
 
+# Submission from python data
+```{r Submission 15}
+python_data <- read.csv('~/dropbox/stats-101c-kaggle/PythonResults/python2.csv')
+
+python_data$Fatal <- ifelse(python_data$Fatal=='F', 'Yes', 'No')
+
+i_fatal <- as.numeric(rownames(subset(python_data, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(python_data, id %in% non_fatal_ids)))
+python_data[i_fatal, 'Fatal'] <- 'Yes'
+python_data[i_nonFatal, 'Fatal'] <- 'No'
+
+prop.table(table(python_data$Fatal))
+
+write.csv(python_data, '~/dropbox/stats-101c-kaggle/Submissions/Submission15.csv', row.names=F)
+
+```
+
+
+```{r Submission 16}
+python_data <- read.csv('~/dropbox/stats-101c-kaggle/PythonResults/python3.csv')
+
+xgb_yes_rows <- which(python_data$xgb=='F')
+rF_yes_rows <- which(python_data$rf_gini=='F')
+# let's see the intersect for "yes"
+intersect <- intersect(xgb_yes_rows, rF_yes_rows)
+
+test_df <- data.frame('id' = final_test$id,
+                      'Fatal' ='No')
+test_df$Fatal <- as.character(test_df$Fatal)
+test_df[intersect, 'Fatal'] <- 'Yes'
+
+
+#python_data$Fatal <- ifelse(python_data$Fatal=='F', 'Yes', 'No')
+
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+
+prop.table(table(test_df$Fatal))
+
+write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission16.csv', row.names=F)
+
+```
