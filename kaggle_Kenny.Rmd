@@ -367,8 +367,9 @@ clean_up <- function(data, includeNA = F){
   # assigning 0 to NA in order to keep the observations because model.matrix() removes all rows with NA's
   merged$NewAge <- as.numeric(str_extract(merged$SubjectAge, '[0-9]+'))
   merged[is.na(merged$NewAge), 'NewAge'] <- 0
-  merged$AgeGroup <- findInterval(merged$NewAge, c(0, 20, 40, 60, 80))
-  #merged$AgeGroup <- findInterval(merged$NewAge, c(0, 10, 20,30, 40,50, 60,70, 80))
+  #merged$AgeGroup <- findInterval(merged$NewAge, c(0, 20, 40, 60, 80))
+  merged$AgeGroup <- findInterval(merged$NewAge, c(0, 10, 20,30, 40,50, 60,70, 80))
+  #merged$AgeGroup <- findInterval(merged$NewAge, seq(0,80,5))
   merged[which(merged$NewAge == 0), 'AgeGroup'] <- 0
   merged$AgeGroup <- as.numeric(merged$AgeGroup)
   merged[is.na(merged$Month), 'Month'] <- 0
@@ -669,10 +670,12 @@ merged <- merged[!duplicated(merged$id),]
 # don't think age group is helping
 # use day or weekend? ## month outperforms seasons; day outperforms weekend
 training[training$AgeGroup==0, 'AgeGroup'] <- 5
+#training$AgeGroup <- as.factor(training$AgeGroup)
 
-train_data <- na.omit(training[[1]][, c('Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
-                                   'NewAge', 'NumberOfOfficers', 'ShotsClean',
-                                   'Month', 'Day','estimate2016', 'mainOfficerRace')
+train_data <- na.omit(training[, c('Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'AgeGroup', 'NumberOfOfficers', 'ShotsClean',
+                                   'Month', 'Day','estimate2016', 'mainOfficerRace', 
+                                'mainOfficerGender')
                                   ]) 
 #train_data[which(train_data$mainOfficerGender=='N'), 'mainOfficerGender'] <- 'M'
 #train_data$mainOfficerGender <- droplevels(train_data$mainOfficerGender)
@@ -680,7 +683,7 @@ train_data <- na.omit(training[[1]][, c('Fatal','SubjectRace', 'SubjectGender', 
 seed <- 12345
 n <- nrow(train_data)
 set.seed(seed)
-train_i <- sample(1:n,n*.8,replace=F )
+train_i <- sample(1:n,n,replace=F )
 train_data_train <- train_data[train_i,]
 train_data_test <- train_data[-train_i,]
 train_X <- model.matrix(Fatal ~ ., data = train_data_train)[,-1]
@@ -696,19 +699,20 @@ random forest; optimizing hyperparameters
 library(caret)
 rf_trcontrol_1 <- trainControl(method="cv", number=5, verboseIter = T, returnResamp = 'all',
                               allowParallel = T, savePredictions = T, classProbs = T)
-rf_grid_1 <- expand.grid(.mtry=c(2:10))
+rf_grid_1 <- expand.grid(.mtry=c(2:20))
 set.seed(seed)
 rf_model<-train(Fatal~.,data=train_data_train,
                 method="rf",
                 trControl=rf_trcontrol_1,
-                ntree=500,
+                ntree=200,
                 tuneGrid = rf_grid_1,
                 prox=TRUE)
 View(rf_model$results) 
 
 library(randomForest)
 set.seed(seed)
-rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=500, mtry=7, importance=T, maxnodes=5)
+rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=200, 
+                       mtry=4, importance=T, maxnode=150)
 rF_mod
 rF_mod_pred_test <- predict(rF_mod, newdata = train_data_test)
 #rF_mod_pred_test <- predict(rF_mod, newdata = training2[,-4])
@@ -805,7 +809,7 @@ View(xgb_train_1$results)
 xgb_params_1 = list(
   objective = "binary:logistic",                                              
   eta = 0.1,                                                                 
-  max.depth = 3,                                                                                   
+  max.depth = 4,                                                                                   
   nthread=3
 )
 # when looking at roc metric, I want a high sensitivity?
@@ -813,7 +817,7 @@ xgb_params_1 = list(
 # specificty: model will predict more 'N', will get more true negatives but less false positives
 set.seed(seed)
 train_data_train$response_dummy <- ifelse(train_data_train$Fatal=='F', 1,0) #1 means fatal
-xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=56)
+xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=21)
 xgb_pred <- predict(xgb, test_X)
 xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'F', 'N')
 table(xgb_pred_class, train_data_test$Fatal)
@@ -827,6 +831,32 @@ xgb.importance(model=xgb)
 #              F  73  32
 #              N 117 340
 ```
+
+svm optimizing hyperparameters
+```{r}
+library(caret)
+library(e1071)
+svm_trcontrol_1 <- trainControl(method="cv", number=5, verboseIter = T, returnResamp = 'all',
+                              allowParallel = T, savePredictions = T, classProbs = T)
+svm_grid_1 <- expand.grid(cost=c(0.01, 0.1,1,10))
+set.seed(seed)
+
+svm_model<-train(x = train_X,
+                 y=as.factor(train_data_train$Fatal),
+                method="svmLinearWeights",
+                trControl=svm_trcontrol_1,
+                tuneGrid = svm_grid_1,
+                prox=TRUE)
+View(svm_model$results)
+
+svm_mod <- svm(Fatal ~ ., data = train_data_train, cost=100, gamma = 0.01)
+svm_mod_pred_test <- predict(svm_mod, newdata = train_data_test)
+table(svm_mod_pred_test, train_data_test$Fatal)
+mean(svm_mod_pred_test == train_data_test$Fatal)
+
+```
+
+
 
 # Predictions
 ```{r Submission 4 81.6%}
@@ -1153,6 +1183,49 @@ prop.table(table(test_df$Fatal))
 
 ```
 
+```{r Submissino 17}
+# intersection of rF, xgb, svm
+fin_test <- clean_up(final_test)
+test_data <- na.omit(fin_test[,c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'AgeGroup', 'NumberOfOfficers', 'ShotsClean',
+                                   'Month', 'Day','estimate2016', 'mainOfficerRace', 
+                                'mainOfficerGender')])
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+
+xgb_pred <- predict(xgb, final_test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
+rF_mod_pred_test <- predict(rF_mod, newdata = test_data)
+rF_mod_pred_test <- ifelse(rF_mod_pred_test == 'F', 'Yes', 'No')
+svm_mod_pred_test <- predict(svm_mod, newdata = test_data)
+svm_mod_pred_test <- ifelse(svm_mod_pred_test == 'F', 'Yes', 'No')
+
+test_df_xgb <- data.frame('id'=fin_test$id, 
+                      'Fatal' = xgb_pred_class)
+test_df_rF <- data.frame('id' = fin_test$id,
+                         'Fatal' = rF_mod_pred_test)
+test_df_svm <- data.frame('id' = fin_test$id,
+                          'Fatal' = svm_mod_pred_test)
+
+xgb_yes_rows <- which(test_df_xgb$Fatal=='Yes')
+rF_yes_rows <- which(test_df_rF$Fatal=='Yes')
+svm_yes_rows <- which(test_df_svm$Fatal=='Yes')
+# let's see the intersect for "yes"
+intersect_xgb_rF <- intersect(xgb_yes_rows, rF_yes_rows)
+intersect_svm <- intersect(intersect_xgb_rF, svm_yes_rows)
+
+
+test_df <- data.frame('id' = fin_test$id,
+                      'Fatal' ='No')
+test_df$Fatal <- as.character(test_df$Fatal)
+test_df[intersect_svm, 'Fatal'] <- 'Yes'
+
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+```
+
+
 # Submission
 ```{r Submissions}
 submission <- data.frame(id = final_test$id,
@@ -1168,7 +1241,7 @@ submission[which(submission$id =='9055'),]
 test_df[which(test_df$id=='9055'),]
 # intersect(i, fatal_index)
 
-write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission13.csv', row.names=F)
+write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission17.csv', row.names=F)
 
 # submission 1: 67%; just said no to everything
 # submission 2: 79%; converted 180 "fatal" rows to 'Yes'
@@ -1178,6 +1251,7 @@ write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission13.csv', r
 
 # Submission from python data
 ```{r Submission 15}
+# used ensemble logistic model
 python_data <- read.csv('~/dropbox/stats-101c-kaggle/PythonResults/python2.csv')
 
 python_data$Fatal <- ifelse(python_data$Fatal=='F', 'Yes', 'No')
@@ -1195,6 +1269,7 @@ write.csv(python_data, '~/dropbox/stats-101c-kaggle/Submissions/Submission15.csv
 
 
 ```{r Submission 16}
+# used intersection of xgb and rf
 python_data <- read.csv('~/dropbox/stats-101c-kaggle/PythonResults/python3.csv')
 
 xgb_yes_rows <- which(python_data$xgb=='F')
