@@ -1,0 +1,81 @@
+import pandas as pd
+import numpy as np
+
+# importing the dataset
+clean_merged = pd.read_csv('/Users/Kenny/Dropbox/Stats-101C-Kaggle/Datasets/cleaned_merged1.csv') 
+print(clean_merged.shape)
+
+
+clean_merged1 = clean_merged[clean_merged.Fatal != 'U']
+features_list = ['Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
+                               'ShotsClean', 'AgeGroup', 'NumberOfOfficers',
+                                   'Month', 'Day', 'estimate2016', 'mainOfficerRace']
+clean_merged1 = clean_merged1[features_list]
+clean_merged1.shape
+
+# splitting up into training and testing
+from sklearn.model_selection import train_test_split
+
+features = pd.get_dummies(clean_merged1.iloc[:,1:])
+labels = clean_merged1.Fatal
+train_features, test_features, train_labels, test_labels = train_test_split(features, 
+                                                                            labels, 
+                                                                            test_size=.2,
+                                                                            random_state=1255)
+print('train_features dimensions:', train_features.shape)
+print('test_features dimensions:', test_features.shape)
+print('train_labels dimensions:', train_labels.shape)
+print('test_labels dimensions:', test_labels.shape)
+
+
+# testing out different algorithms
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC, LinearSVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neural_network import MLPClassifier
+from xgboost import XGBClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import accuracy_score
+# xgboost causing warnings
+import warnings
+warnings.filterwarnings('ignore')
+
+
+models = []
+models.append(('LogisticRegression', LogisticRegression()))
+models.append(("SVC", SVC(C=1, gamma=0.1)))
+models.append(("KNeighborsClassifier", KNeighborsClassifier(n_neighbors=5)))
+models.append(("RandomForestClassifier_gini", RandomForestClassifier(n_estimators=300,
+                                                                criterion='gini',
+                                                                max_depth=7)))
+models.append(("RandomForestClassifier_entropy", RandomForestClassifier(n_estimators=300,
+                                                                criterion = 'entropy',
+                                                                max_depth=7)))
+models.append(('XGBoost', XGBClassifier(learning_rate=0.1, n_estimators=100,
+                                       max_depth= 5)))
+models.append(('Adaboost', AdaBoostClassifier(learning_rate=0.1, n_estimators=100)))
+results = []
+names = []
+for name,model in models:
+    result = cross_val_score(model, train_features, train_labels, cv=5)
+    names.append(name)
+    results.append(result)
+
+mean_results = []
+sd_results = []
+for model in results:
+    mean_results.append(model.mean())
+    sd_results.append(model.std())
+
+results_df = pd.DataFrame({'Model': names,
+              'Mean Classification Rate': mean_results,
+              'Standard Deviation': sd_results
+             })
+results_df = results_df.iloc[:,[1,0,2]]
+
+results_df.sort_values(by = 'Mean Classification Rate', ascending=False)
+

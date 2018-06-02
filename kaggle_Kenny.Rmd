@@ -73,15 +73,15 @@ Let's figure out what words are associated with fatalities by creating a simple 
 ```{r fatalality propotion of words function}
 fatal_words <- function(data){
   # number of unique words
-  data$FullNarrative <- as.character(data$FullNarrative)
-  word_list <- tolower(unique(unlist(strsplit(data$FullNarrative, ' '))))
+  data$NatureOfStop <- as.character(data$NatureOfStop)
+  word_list <- tolower(unique(unlist(strsplit(data$NatureOfStop, ' '))))
   # yes means fatal
   yes_list <- rep(0, length(word_list))
   no_list <- rep(0, length(word_list))
   u_list <- rep(0, length(word_list))
   '%ni%' <- Negate('%in%')
   for(row in 1:nrow(data)){
-    para_temp <- strsplit(data[row,'FullNarrative'], ' ')
+    para_temp <- strsplit(data[row,'NatureOfStop'], ' ')
     temp <- c()
     for(word in unlist(para_temp)){
       word <- tolower(word)
@@ -125,15 +125,23 @@ i7 <- which(!is.na(str_locate(final_test$FullNarrative, 'succumb')[,1]) == T)
 i8 <- which(!is.na(str_locate(final_test$FullNarrative, 'toxic')[,1]) == T)
 i9 <- which(!is.na(str_locate(final_test$FullNarrative, 'mortal')[,1]) == T)
 i10 <- which(!is.na(str_locate(final_test$FullNarrative, 'fatal')[,1]) == T)[-c(6:9)]
-i11 <- which(!is.na(str_locate(final_test$Notes, 'Death')[,1]) == T)
-fatal_index <- unique(c(i,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11))
+i11 <- which(!is.na(str_locate(final_test$FullNarrative, 'Fatal')[,1]) == T)
+i12 <- which(!is.na(str_locate(final_test$Notes, 'Death')[,1]) == T)
+fatal_index <- unique(c(i,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11,i12,i13))
 fatal_ids <- final_test[fatal_index, 'id']
-non_fatal_ids <- final_test[c(556,63,1241,1193,1225),'id']
 
-table(data[!is.na(str_locate(data$NatureOfStop, 'Critical')[,1]),]$Fatal)
-#View(final_test[which(!is.na(str_locate(final_test$FullNarrative, 'critical')[,1]) == T),])
+non_i1 <- which(!is.na(str_locate(final_test$FullNarrative, 'Non-Fatal')[,1]) == T)
+non_fatal_ids <- final_test[c(556,63,1241,1193,1225, non_i1),'id']
+
+
+# table(data[!is.na(str_locate(data$NatureOfStop, 'Critical')[,1]),]$Fatal)
+# View(final_test[which(!is.na(str_locate(final_test$FullNarrative, 'arrest')[,1]) == T),])
+# 
+# View(data[which(!is.na(str_locate(data$FullNarrative, 'treat')[,1]) == T),])
+# View(data[which(!is.na(str_locate(data$NatureOfStop, 'health')[,1]) == T),])
+
 # reading some of the actual narratives to confirm fatality
-#View(final_test[i2,])
+# View(final_test[i11,])
 ```
 
 
@@ -297,12 +305,11 @@ merged$OfficerWhite <- as.factor(merged$OfficerWhite)
 #                      'N' = prop.table(table(Fatal))[2],
 #                      'n' = n()) %>% arrange(desc(n))
 ```
-
 Function for merging and cleaning the dataset
 ```{r}
 clean_up <- function(data, includeNA = F){
-  rm_cols <- which(names(data)=='FullNarrative' | names(data)=='Notes')
-  data2 <- data[, -rm_cols] 
+  #rm_cols <- which(names(data)=='FullNarrative' | names(data)=='Notes')
+  data2 <- data 
   data_noU <- data2
   if('Fatal' %in% names(data) & includeNA == F){
     data_noU <- data2[which(data2$Fatal!='U'),]
@@ -314,6 +321,10 @@ clean_up <- function(data, includeNA = F){
   data_noU$Month <- as.character(Month)
   Day <- wday(data_noU$Date)
   data_noU$Day <- as.character(Day)
+  Year <- year(data_noU$Date)
+  data_noU$Year <- as.character(Year)
+
+
 
   library(readr)
   city_info <- read_delim("Desktop/Untitled.txt", 
@@ -376,6 +387,12 @@ clean_up <- function(data, includeNA = F){
   merged$Month <- as.factor(merged$Month)
   merged[is.na(merged$Day), 'Day'] <- 0
   merged$Day <- as.factor(merged$Day)
+  merged[is.na(merged$Year), 'Year'] <- 0
+    # change 1905 to 2016
+  merged[merged$Year == '1905', 'Year'] <- 2016
+  merged$Year <- as.factor(merged$Year)
+
+  
   merged$Seasons<- as.factor(findInterval(merged$Month, c(2,5,9,12)))
   merged$Weekend <- ifelse(merged$Day == 1 | merged$Day == 7, 1, 0)
   
@@ -392,6 +409,7 @@ clean_up <- function(data, includeNA = F){
   #merged[which(merged$SubjectGender != 'F'), 'SubjectGender'] <- 'M'
   # remove factors of gender
   #merged$SubjectGender <- as.character(merged$SubjectGender)
+  merged[is.na(merged$SubjectRace), 'SubjectRace'] <- 'U'
   
   # fixing NumberOfShots
   # first, assign all NA's to one 
@@ -669,21 +687,25 @@ merged <- merged[!duplicated(merged$id),]
 # pick what variables we want to train data on
 # don't think age group is helping
 # use day or weekend? ## month outperforms seasons; day outperforms weekend
-training[training$AgeGroup==0, 'AgeGroup'] <- 5
+#training[training$AgeGroup==0, 'AgeGroup'] <- 5
 #training$AgeGroup <- as.factor(training$AgeGroup)
+training$races <- as.factor(paste(training$SubjectRace, training$mainOfficerRace))
+training$state <- as.factor(training$state)
+training$City <- as.factor(training$City)
+training[training$SubjectGender=='U', 'SubjectGender'] <- 'M'
 
-train_data <- na.omit(training[, c('Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
-                                   'AgeGroup', 'NumberOfOfficers', 'ShotsClean',
-                                   'Month', 'Day','estimate2016', 'mainOfficerRace', 
-                                'mainOfficerGender')
+train_data <- na.omit(training[, c('Fatal', 'SubjectGender', 'SubjectArmed',
+                                   'NewAge', 'NumberOfOfficers', 'ShotsClean', 'ShotsClean',
+                                   'Year', 'Month', 'Day','estimate2016', 'SubjectRace')
                                   ]) 
+
 #train_data[which(train_data$mainOfficerGender=='N'), 'mainOfficerGender'] <- 'M'
 #train_data$mainOfficerGender <- droplevels(train_data$mainOfficerGender)
 
 seed <- 12345
 n <- nrow(train_data)
 set.seed(seed)
-train_i <- sample(1:n,n,replace=F )
+train_i <- sample(1:n,n*0.8,replace=F )
 train_data_train <- train_data[train_i,]
 train_data_test <- train_data[-train_i,]
 train_X <- model.matrix(Fatal ~ ., data = train_data_train)[,-1]
@@ -767,10 +789,35 @@ table(nn_results_class, train_data_test$Fatal)
 mean(nn_results_class==train_data_test$Fatal)
 ```
 
+
+svm optimizing hyperparameters
+```{r}
+library(caret)
+library(e1071)
+svm_trcontrol_1 <- trainControl(method="cv", number=5, verboseIter = T, returnResamp = 'all',
+                              allowParallel = T, savePredictions = T, classProbs = T)
+svm_grid_1 <- expand.grid(cost=c(0.01, 0.1,1,10))
+set.seed(seed)
+
+svm_model<-train(x = train_X,
+                 y=as.factor(train_data_train$Fatal),
+                method="svmLinearWeights",
+                trControl=svm_trcontrol_1,
+                tuneGrid = svm_grid_1,
+                prox=TRUE)
+View(svm_model$results)
+
+svm_mod <- svm(Fatal ~ ., data = train_data_train, cost=100, gamma = 0.01)
+svm_mod_pred_test <- predict(svm_mod, newdata = train_data_test)
+table(svm_mod_pred_test, train_data_test$Fatal)
+mean(svm_mod_pred_test == train_data_test$Fatal)
+
+```
+
+
 xgboost; optimizing the hyperparameters
 ```{r}
 library(caret)
-library(xgboost)
 # first gridsearch for best params
 set.seed(seed)
 xgb_grid_1 = expand.grid(
@@ -806,10 +853,11 @@ View(xgb_train_1$results)
 # next, fit the model with the optimized parameters
 
 # best params so far: eta = 0.1, max.depth = 3, nthread=3, nrounds=100
+library(xgboost)
 xgb_params_1 = list(
   objective = "binary:logistic",                                              
   eta = 0.1,                                                                 
-  max.depth = 4,                                                                                   
+  max.depth = 5,                                                                                   
   nthread=3
 )
 # when looking at roc metric, I want a high sensitivity?
@@ -819,7 +867,7 @@ set.seed(seed)
 train_data_train$response_dummy <- ifelse(train_data_train$Fatal=='F', 1,0) #1 means fatal
 xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=21)
 xgb_pred <- predict(xgb, test_X)
-xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'F', 'N')
+xgb_pred_class <- ifelse(xgb_pred >= 0.5, 'F', 'N')
 table(xgb_pred_class, train_data_test$Fatal)
 mean(xgb_pred_class==train_data_test$Fatal)
 xgb.importance(model=xgb)
@@ -830,30 +878,6 @@ xgb.importance(model=xgb)
 # xgb_pred_class   F   N #sensitivity
 #              F  73  32
 #              N 117 340
-```
-
-svm optimizing hyperparameters
-```{r}
-library(caret)
-library(e1071)
-svm_trcontrol_1 <- trainControl(method="cv", number=5, verboseIter = T, returnResamp = 'all',
-                              allowParallel = T, savePredictions = T, classProbs = T)
-svm_grid_1 <- expand.grid(cost=c(0.01, 0.1,1,10))
-set.seed(seed)
-
-svm_model<-train(x = train_X,
-                 y=as.factor(train_data_train$Fatal),
-                method="svmLinearWeights",
-                trControl=svm_trcontrol_1,
-                tuneGrid = svm_grid_1,
-                prox=TRUE)
-View(svm_model$results)
-
-svm_mod <- svm(Fatal ~ ., data = train_data_train, cost=100, gamma = 0.01)
-svm_mod_pred_test <- predict(svm_mod, newdata = train_data_test)
-table(svm_mod_pred_test, train_data_test$Fatal)
-mean(svm_mod_pred_test == train_data_test$Fatal)
-
 ```
 
 
