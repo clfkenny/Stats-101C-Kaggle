@@ -127,7 +127,7 @@ i9 <- which(!is.na(str_locate(final_test$FullNarrative, 'mortal')[,1]) == T)
 i10 <- which(!is.na(str_locate(final_test$FullNarrative, 'fatal')[,1]) == T)[-c(6:9)]
 i11 <- which(!is.na(str_locate(final_test$FullNarrative, 'Fatal')[,1]) == T)
 i12 <- which(!is.na(str_locate(final_test$Notes, 'Death')[,1]) == T)
-fatal_index <- unique(c(i,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11,i12,i13))
+fatal_index <- unique(c(i,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11,i12))
 fatal_ids <- final_test[fatal_index, 'id']
 
 non_i1 <- which(!is.na(str_locate(final_test$FullNarrative, 'Non-Fatal')[,1]) == T)
@@ -137,8 +137,9 @@ non_fatal_ids <- final_test[c(556,63,1241,1193,1225, non_i1),'id']
 # table(data[!is.na(str_locate(data$NatureOfStop, 'Critical')[,1]),]$Fatal)
 # View(final_test[which(!is.na(str_locate(final_test$FullNarrative, 'arrest')[,1]) == T),])
 # 
-# View(data[which(!is.na(str_locate(data$FullNarrative, 'treat')[,1]) == T),])
+# View(data[which(!is.na(str_locate(data$FullNarrative, 'justif')[,1]) == T),])
 # View(data[which(!is.na(str_locate(data$NatureOfStop, 'health')[,1]) == T),])
+# View(data[which(!is.na(str_locate(data$Notes, 'justif')[,1]) == T),])
 
 # reading some of the actual narratives to confirm fatality
 # View(final_test[i11,])
@@ -324,8 +325,6 @@ clean_up <- function(data, includeNA = F){
   Year <- year(data_noU$Date)
   data_noU$Year <- as.character(Year)
 
-
-
   library(readr)
   city_info <- read_delim("Desktop/Untitled.txt", 
       "\t", escape_double = FALSE, col_names = FALSE, 
@@ -351,7 +350,12 @@ clean_up <- function(data, includeNA = F){
   data_noU[which(data_noU$City == 'princegeorgescounty'), 'City'] <- 'washington' 
   data_noU[which(data_noU$City == 'fairfaxcounty'), 'City'] <- 'washington' 
   
+  library(readxl)
+  city_med_income <- read_excel("Desktop/city_med_income.xlsx")
+  
+  
   merged <- merge(x=data_noU, y=city_info, by='City')
+  merged <- merge(x=merged, y = city_med_income, by = 'City')
   merged <- merged[!duplicated(merged$id),]
   
   # let's clean up the variables
@@ -375,11 +379,12 @@ clean_up <- function(data, includeNA = F){
   
   
   
+  
   # assigning 0 to NA in order to keep the observations because model.matrix() removes all rows with NA's
   merged$NewAge <- as.numeric(str_extract(merged$SubjectAge, '[0-9]+'))
   merged[is.na(merged$NewAge), 'NewAge'] <- 0
-  #merged$AgeGroup <- findInterval(merged$NewAge, c(0, 20, 40, 60, 80))
-  merged$AgeGroup <- findInterval(merged$NewAge, c(0, 10, 20,30, 40,50, 60,70, 80))
+  merged$AgeGroup <- findInterval(merged$NewAge, c(0, 20, 40, 60, 80))
+  #merged$AgeGroup <- findInterval(merged$NewAge, c(0, 10, 20,30, 40,50, 60,70, 80))
   #merged$AgeGroup <- findInterval(merged$NewAge, seq(0,80,5))
   merged[which(merged$NewAge == 0), 'AgeGroup'] <- 0
   merged$AgeGroup <- as.numeric(merged$AgeGroup)
@@ -452,7 +457,32 @@ clean_up <- function(data, includeNA = F){
   merged$mainOfficerGender<- as.factor(substr(main_gender,1,1))
   merged[which(merged$mainOfficerGender=='N'), 'mainOfficerGender'] <- 'M'
   merged$mainOfficerGender <- droplevels(merged$mainOfficerGender)
+  #######################################################################################
+  # extra stuff not sure if useful
+  merged$log_new_age <- log(merged$NewAge)
+  merged[merged$log_new_age==-Inf, 'log_new_age'] <- 0
+  merged$log_income <- log(merged$income)
+  merged$scaled_log_new_age <- scale(merged$log_new_age)
+  merged$scaled_log_income <- scale(merged$log_income)
+  merged$scaled_pop <- scale(merged$estimate2016)
   
+  lat <- str_extract_all(merged$location, '[0-9.]+', simplify=TRUE)[,2]
+  long <- str_extract_all(merged$location, '[0-9.]+', simplify=TRUE)[,1]
+  merged$lat <- as.numeric(lat)
+  merged$long <- as.numeric(long)
+  
+  state_fatal_prop <- read.csv('~/dropbox/stats-101c-kaggle/state_fatal_prop.csv')
+  city_fatal_prop <- read.csv('~/dropbox/stats-101c-kaggle/city_fatal_prop.csv')
+
+  merged <- merge(merged, state_fatal_prop, by = 'state', all.x=TRUE )
+  merged <- merge(merged, city_fatal_prop, by = 'City', all.x=TRUE)
+  
+  # merged$subject_minority<- as.factor(ifelse(merged$SubjectRace == 'W' |
+  #                                     merged$SubjectRace == 'U', 'No', 'Yes'))
+
+  # state_gini<- read.csv('~/dropbox/stats-101c-kaggle/Datasets/Gini_State.csv')[,-1]
+  # merged <- merge(merged, state_gini)
+  # 
   return(merged)
 }
 
@@ -649,8 +679,8 @@ training <- impute_clean_up(train)
 # NumberOfOfficers predicts better than MoreThanOneOfficer
 
 set.seed(seed)
-training <- clean_up(data, includeNA=F)
-write.csv(training, '~/dropbox/stats-101c-kaggle/Datasets/cleaned_merged1.csv', row.names=F)
+training <- clean_up(data, includeNA=T)
+write.csv(training, '~/dropbox/stats-101c-kaggle/Datasets/cleaned_merged2.csv', row.names=F)
 testing <- clean_up(final_test)
 write.csv(testing, '~/dropbox/stats-101c-kaggle/Datasets/test_clean_merged.csv', row.names=F)
 ############################################################################################
@@ -664,10 +694,13 @@ crime.rates <- crime.rates[,-2]
 merged <- merge(x=training, y=crime.rates, by = 'state')
 merged <- merged[!duplicated(merged$id),]
 merged$violent_crime_category <- findInterval(merged$total.violent.crimes, c(0,200,600,2000))
-merged$total_property_cat <- findInterval(merged$total_property, c(0,2000,3000,3500, 4500,6500))
+merged$total_property_cat <- findInterval(merged$total_property, c(0,3000,5000,6500,8000))
 merged$population2 <- as.numeric(gsub('\\D+','', merged$population))
 merged$ratio <- merged$total.violent.crimes/(merged$total.violent.crimes + merged$total_property)
+merged$total_crime <- merged$total.violent.crimes + merged$total_property
+merged$total_crime_cat <- as.factor(findInterval(merged$total_crime, c(2000,4500,6500,8000)))
 
+write.csv(merged, '~/dropbox/stats-101c-kaggle/Datasets/crime_merged1.csv', row.names=F)
 ############################################################################################
 # race proportions by state
 race_prop <- read.csv("~/Desktop/raw_data.csv", header=T)
@@ -689,23 +722,45 @@ merged <- merged[!duplicated(merged$id),]
 # use day or weekend? ## month outperforms seasons; day outperforms weekend
 #training[training$AgeGroup==0, 'AgeGroup'] <- 5
 #training$AgeGroup <- as.factor(training$AgeGroup)
-training$races <- as.factor(paste(training$SubjectRace, training$mainOfficerRace))
-training$state <- as.factor(training$state)
-training$City <- as.factor(training$City)
-training[training$SubjectGender=='U', 'SubjectGender'] <- 'M'
 
-train_data <- na.omit(training[, c('Fatal', 'SubjectGender', 'SubjectArmed',
-                                   'NewAge', 'NumberOfOfficers', 'ShotsClean', 'ShotsClean',
-                                   'Year', 'Month', 'Day','estimate2016', 'SubjectRace')
-                                  ]) 
 
+# train_data <- na.omit(training[, c('Fatal', 'SubjectGender', 'SubjectRace',
+#                                        'ShotsClean',
+#                                    'NewAge', 'NumberOfOfficers'
+#                                    ,'Month', 'Day','estimate2016', 'mainOfficerRace', 'income'
+#                                    )]) 
+
+  
+
+write.csv(merged, '~/dropbox/stats-101c-kaggle/Datasets/clean_merged3.csv', row.names=F)
+
+testing <- clean_up(final_test)
+testing$Fatal <- 'U'
+rownames(testing) <- 1:1400
+i_fatal <- as.numeric(rownames(subset(testing, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(testing, id %in% non_fatal_ids)))
+testing[i_fatal, 'Fatal'] <- 'F'
+testing[i_nonFatal, 'Fatal'] <- 'N'
+testing_F <- testing[testing$Fatal == 'F',][sample(1:191, 70),]
+testing_NF <- testing[testing$Fatal != 'F', -48]
+
+training_w_testing <- rbind(training, testing_F)
+
+
+train_data <- na.omit(training[,c('Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'scaled_log_new_age', 'NumberOfOfficers', 'ShotsClean',
+                                   'Year','Seasons','estimate2016' ,'scaled_log_income',
+                                   'city_fatal_prop')])
+
+
+#prop.table(table(predict(rF_mod, newdata=testing)))
 #train_data[which(train_data$mainOfficerGender=='N'), 'mainOfficerGender'] <- 'M'
 #train_data$mainOfficerGender <- droplevels(train_data$mainOfficerGender)
 
 seed <- 12345
 n <- nrow(train_data)
 set.seed(seed)
-train_i <- sample(1:n,n*0.8,replace=F )
+train_i <- sample(1:n,n, replace=F )
 train_data_train <- train_data[train_i,]
 train_data_test <- train_data[-train_i,]
 train_X <- model.matrix(Fatal ~ ., data = train_data_train)[,-1]
@@ -721,19 +776,19 @@ random forest; optimizing hyperparameters
 library(caret)
 rf_trcontrol_1 <- trainControl(method="cv", number=5, verboseIter = T, returnResamp = 'all',
                               allowParallel = T, savePredictions = T, classProbs = T)
-rf_grid_1 <- expand.grid(.mtry=c(2:20))
+rf_grid_1 <- expand.grid(.mtry=c(2:10))
 set.seed(seed)
-rf_model<-train(Fatal~.,data=train_data_train,
+rf_model2<-train(Fatal~.,data=train_data_train,
                 method="rf",
                 trControl=rf_trcontrol_1,
                 ntree=200,
                 tuneGrid = rf_grid_1,
                 prox=TRUE)
-View(rf_model$results) 
+View(rf_model2$results) 
 
 library(randomForest)
 set.seed(seed)
-rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=200, 
+rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=1000, 
                        mtry=4, importance=T, maxnode=150)
 rF_mod
 rF_mod_pred_test <- predict(rF_mod, newdata = train_data_test)
@@ -742,6 +797,7 @@ table(rF_mod_pred_test, train_data_test$Fatal)
 #table(rF_mod_pred_test, training2$Fatal )
 mean(rF_mod_pred_test == train_data_test$Fatal)
 #mean(rF_mod_pred_test == training2$Fatal, na.rm=T)
+prop.table(table(rF_mod_pred_test))
 importance(rF_mod)
 ```
 
@@ -796,12 +852,12 @@ library(caret)
 library(e1071)
 svm_trcontrol_1 <- trainControl(method="cv", number=5, verboseIter = T, returnResamp = 'all',
                               allowParallel = T, savePredictions = T, classProbs = T)
-svm_grid_1 <- expand.grid(cost=c(0.01, 0.1,1,10))
+svm_grid_1 <- expand.grid(C=c(0.001,0.01, 0.1, 0.5, 1))
 set.seed(seed)
 
 svm_model<-train(x = train_X,
                  y=as.factor(train_data_train$Fatal),
-                method="svmLinearWeights",
+                method="svmLinear",
                 trControl=svm_trcontrol_1,
                 tuneGrid = svm_grid_1,
                 prox=TRUE)
@@ -822,12 +878,12 @@ library(caret)
 set.seed(seed)
 xgb_grid_1 = expand.grid(
   nrounds = seq(1,81,5),
-  eta = c(0.1, 0.01),
-  max_depth = c(2:10),
+  eta = c(0.1),
+  max_depth = c(3:7),
   gamma = 1,
   colsample_bytree=1,
   min_child_weight = 1,
-  subsample = 1
+  subsample = seq(0.5,1,0.1)
 )
 xgb_trcontrol_1 = trainControl(
   method = "cv",
@@ -840,7 +896,7 @@ xgb_trcontrol_1 = trainControl(
   allowParallel = F,
   savePredictions = TRUE
 )
-xgb_train_1 = train(
+xgb_train_2 = train(
   x = train_X,
   y = as.factor(train_data_train$Fatal),
   trControl = xgb_trcontrol_1,
@@ -848,7 +904,7 @@ xgb_train_1 = train(
   method = "xgbTree"
   #metric = 'ROC'
 )
-View(xgb_train_1$results)
+View(xgb_train_2$results)
 
 # next, fit the model with the optimized parameters
 
@@ -857,7 +913,7 @@ library(xgboost)
 xgb_params_1 = list(
   objective = "binary:logistic",                                              
   eta = 0.1,                                                                 
-  max.depth = 5,                                                                                   
+  max.depth = 4,                                                                                   
   nthread=3
 )
 # when looking at roc metric, I want a high sensitivity?
@@ -865,9 +921,9 @@ xgb_params_1 = list(
 # specificty: model will predict more 'N', will get more true negatives but less false positives
 set.seed(seed)
 train_data_train$response_dummy <- ifelse(train_data_train$Fatal=='F', 1,0) #1 means fatal
-xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=21)
+xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=46, subsample = 0.9, gamma = 0)
 xgb_pred <- predict(xgb, test_X)
-xgb_pred_class <- ifelse(xgb_pred >= 0.5, 'F', 'N')
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'F', 'N')
 table(xgb_pred_class, train_data_test$Fatal)
 mean(xgb_pred_class==train_data_test$Fatal)
 xgb.importance(model=xgb)
@@ -1250,6 +1306,89 @@ test_df[i_nonFatal, 'Fatal'] <- 'No'
 ```
 
 
+```{r Submission 18}
+# same as submission 17, except using different features
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'AgeGroup', 'NumberOfOfficers', 'ShotsClean',
+                                   'Year','Seasons', 'Weekend','estimate2016', 'income')
+fin_test <- clean_up(final_test)
+test_data <- na.omit(fin_test[, features])
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+
+xgb_pred <- predict(xgb, final_test_X)
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
+rF_mod_pred_test <- predict(rF_mod, newdata = test_data)
+rF_mod_pred_test <- ifelse(rF_mod_pred_test == 'F', 'Yes', 'No')
+svm_mod_pred_test <- predict(svm_mod, newdata = test_data)
+svm_mod_pred_test <- ifelse(svm_mod_pred_test == 'F', 'Yes', 'No')
+
+test_df_xgb <- data.frame('id'=fin_test$id, 
+                      'Fatal' = xgb_pred_class)
+test_df_rF <- data.frame('id' = fin_test$id,
+                         'Fatal' = rF_mod_pred_test)
+test_df_svm <- data.frame('id' = fin_test$id,
+                          'Fatal' = svm_mod_pred_test)
+
+xgb_yes_rows <- which(test_df_xgb$Fatal=='Yes')
+rF_yes_rows <- which(test_df_rF$Fatal=='Yes')
+svm_yes_rows <- which(test_df_svm$Fatal=='Yes')
+# let's see the intersect for "yes"
+intersect_xgb_rF <- intersect(xgb_yes_rows, rF_yes_rows)
+intersect_svm <- intersect(intersect_xgb_rF, svm_yes_rows)
+
+
+test_df <- data.frame('id' = fin_test$id,
+                      'Fatal' ='No')
+test_df$Fatal <- as.character(test_df$Fatal)
+test_df[intersect_xgb_rF, 'Fatal'] <- 'Yes'
+
+rownames(test_df) <- 1:1400
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+```
+
+```{r Submission 19}
+# same as 18 except using intersect_xgb_rF rather than intersect_svm
+# this does worse than intersecting with svm!!
+```
+
+```{r Submission 20}
+# exact same as submissino 18, except using different features
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'scaled_log_new_age', 'NumberOfOfficers', 'ShotsClean',
+                                   'Year','Month', 'scaled_pop', 'scaled_log_income')
+
+```
+
+```{r Submission 21}
+# same as 18 except using different features and intersecting with xgb and rF only instead
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'scaled_log_new_age', 'NumberOfOfficers', 'ShotsClean',
+                                   'Year','Month', 'scaled_pop', 'scaled_log_income')
+
+```
+
+```{r Submission 22}
+# combining training with testing with known fatals to train model, then predict, use intersection between xgb and rF
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'scaled_log_new_age', 'NumberOfOfficers', 'ShotsClean',
+                                   'Year','Seasons','estimate2016' ,'scaled_log_income')
+
+
+```
+
+```{r Submission 23}
+# using intersection between xgb and rF
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                   'scaled_log_new_age', 'NumberOfOfficers', 'ShotsClean',
+                                   'Year','Seasons','estimate2016' ,'scaled_log_income',
+                                   'city_fatal_prop')
+
+fin_test[is.na(fin_test$city_fatal_prop), 'city_fatal_prop'] <- mean(fin_test$city_fatal_prop, na.rm=T )
+```
+
 # Submission
 ```{r Submissions}
 submission <- data.frame(id = final_test$id,
@@ -1265,7 +1404,7 @@ submission[which(submission$id =='9055'),]
 test_df[which(test_df$id=='9055'),]
 # intersect(i, fatal_index)
 
-write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission17.csv', row.names=F)
+write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission23.csv', row.names=F)
 
 # submission 1: 67%; just said no to everything
 # submission 2: 79%; converted 180 "fatal" rows to 'Yes'
