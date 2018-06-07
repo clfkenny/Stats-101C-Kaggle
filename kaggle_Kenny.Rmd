@@ -467,7 +467,7 @@ clean_up <- function(data, includeNA = F){
   merged$ShotsClean <- shots_clean
   merged[which(merged$ShotsClean==0), 'ShotsClean'] <- 1
   merged$MoreThanOneShot <- ifelse(merged$ShotsClean > 1, 1, 0)
-  #merged[which(merged$ShotsClean>100), 'ShotsClean'] <- 45
+  merged[which(merged$ShotsClean>100), 'ShotsClean'] <- 45
   
   Mode = function(x){ 
     x2 <- strsplit(as.character(x), ';')
@@ -516,6 +516,11 @@ clean_up <- function(data, includeNA = F){
   merged <- merge(merged, state_fatal_prop, by = 'state', all.x=TRUE )
   merged <- merge(merged, city_fatal_prop, by = 'City', all.x=TRUE)
   
+  merged[is.na(merged$state_fatal_prop), 'state_fatal_prop'] <- mean(merged$state_fatal_prop, na.rm=T)
+  merged[is.na(merged$city_fatal_prop), 'city_fatal_prop'] <- mean(merged$city_fatal_prop, na.rm=T)
+
+  
+  
   # merged$subject_minority<- as.factor(ifelse(merged$SubjectRace == 'W' |
   #                                     merged$SubjectRace == 'U', 'No', 'Yes'))
 
@@ -524,6 +529,9 @@ clean_up <- function(data, includeNA = F){
   # 
   carry_permit <- read.csv('~/dropbox/stats-101c-kaggle/Datasets/CarryPermitRight.csv')
   merged <- merge(merged, carry_permit)
+  
+  merged$narrativeNA <- as.factor(ifelse(is.na(merged$FullNarrative), 1,0))
+  merged$notesNA <- as.factor(ifelse(is.na(merged$Notes),1,0))
   
   return(merged)
 }
@@ -803,13 +811,10 @@ prop.table(table(ifelse(p>0.5, 'F', 'N')))
 
 features = c('Fatal','NewAge', 'estimate2016', 
              'income', 'SubjectRace', 'ShotsClean', 'Year', 'Month',
-             'Day', 'SubjectGender', 'SubjectArmed','NumberOfOfficers', 'mainOfficerRace')
+             'Day', 'SubjectGender', 'SubjectArmed','NumberOfOfficers', 'mainOfficerRace',
+              'narrativeNA', 'notesNA', 'city_fatal_prop', 'state_fatal_prop')
 train_data <- na.omit(training_w_testing[, features])
 
-# train_data <- na.omit(training[,c('Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
-#                                     'NewAge','NumberOfOfficers', 'ShotsClean',
-#                                    'Year','Seasons', 'estimate2016' ,'income',
-#                                    'X2010','X2011','X2012','X2013','X2014','X2015','X2016')])
 
 # average section
 testing_X = train_data_test
@@ -817,8 +822,9 @@ testing_y = train_data_test$Fatal
 
 p1 <- predict(rF_mod, testing_X, type= 'prob')[,1]
 p2 <- predict(xgb, model.matrix(Fatal ~., testing_X[,features])[,-1])
-#p3 <- predict(svm_mod, testing_X, type = 'probability')
-p_df <- data.frame(p1,p2)
+p3 <- attr(predict(svm_mod, testing_X, probability = T),'probabilities')[,2]
+
+p_df <- data.frame(p1,p2,p3)
 p_mean <- apply(p_df,1, mean)
 p_mean_class <- ifelse(p_mean >0.50, 'F', 'N')
 table(p_mean_class, testing_y)
@@ -838,7 +844,6 @@ xgb_yes_rows <- which(test_df_xgb$Fatal=='Yes')
 rF_yes_rows <- which(test_df_rF$Fatal=='Yes')
 intersect_xgb_rF <- intersect(xgb_yes_rows, rF_yes_rows)
 df_intersect <- rep('N', length(xgb_pred_class))
-
 df_intersect[intersect_xgb_rF] <- 'F'
 table(df_intersect, testing_y)
 
@@ -846,7 +851,7 @@ table(df_intersect, testing_y)
 seed <- 123
 n <- nrow(train_data)
 set.seed(seed)
-train_i <- sample(1:n,n, replace=F )
+train_i <- sample(1:n,n*0.7, replace=F )
 train_data_train <- train_data[train_i,]
 train_data_test <- train_data[-train_i,]
 train_X <- model.matrix(Fatal ~ ., data = train_data_train)[,-1]
@@ -863,6 +868,7 @@ library(caret)
 rf_trcontrol_1 <- trainControl(method="cv", number=5, verboseIter = T, returnResamp = 'all',
                               allowParallel = T, savePredictions = T, classProbs = T)
 rf_grid_1 <- expand.grid(.mtry=c(2:10))
+                         
 set.seed(seed)
 rf_model2<-train(Fatal~.,data=train_data_train,
                 method="rf",
@@ -946,10 +952,19 @@ svm_model<-train(x = train_X,
                 prox=TRUE)
 View(svm_model$results)
 
-svm_mod <- svm(Fatal ~ ., data = train_data_train, cost=5, gamma = 0.01, probability = T)
-svm_mod_pred_test <- predict(svm_mod, newdata = train_data_test, type='probability')
+
+svm_mod <- svm(Fatal ~ ., data = train_data_train, cost=10, gamma = 0.01, probability = T)
+svm_mod_pred_test <- predict(svm_mod, newdata = train_data_test, probability = T)
 table(svm_mod_pred_test, train_data_test$Fatal)
 mean(svm_mod_pred_test == train_data_test$Fatal)
+
+
+#################################################################################
+svm_mod_tune <- tune(svm, Fatal ~., data=train_data_train, kernel='linear',
+                     ranges=list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+summary(svm_mod_tune)
+best_svm <- svm_mod_tune$best.model
+best_svm_red <- predict(best_svm, newdata=train_data_test, probability=T)
 
 ```
 
@@ -996,7 +1011,7 @@ library(xgboost)
 xgb_params_1 = list(
   objective = "binary:logistic",                                              
   eta = 0.1,                                                                 
-  max.depth = 3,                                                                                   
+  max.depth = 4,                                                                                   
   nthread=3
 )
 # when looking at roc metric, I want a high sensitivity?
@@ -1004,7 +1019,7 @@ xgb_params_1 = list(
 # specificty: model will predict more 'N', will get more true negatives but less false positives
 set.seed(seed)
 train_data_train$response_dummy <- ifelse(train_data_train$Fatal=='F', 1,0) #1 means fatal
-xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=46, subsample = 1, gamma = 0)
+xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=351, subsample = 0.9, gamma = 0, verbose = F)
 xgb_pred <- predict(xgb, test_X)
 xgb_pred_class <- ifelse(xgb_pred >= 0.51, 'F', 'N')
 table(xgb_pred_class, train_data_test$Fatal)
@@ -1389,7 +1404,7 @@ test_df[i_nonFatal, 'Fatal'] <- 'No'
 ```
 
 
-```{r Submission 18}
+```{r Submission 18 intersection of models}
 # same as submission 17, except using different features
 features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
                                    'AgeGroup', 'NumberOfOfficers', 'ShotsClean',
@@ -1423,13 +1438,16 @@ intersect_svm <- intersect(intersect_xgb_rF, svm_yes_rows)
 test_df <- data.frame('id' = fin_test$id,
                       'Fatal' ='No')
 test_df$Fatal <- as.character(test_df$Fatal)
-test_df[xgb_yes_rows, 'Fatal'] <- 'Yes'
+test_df[intersect_xgb_rF, 'Fatal'] <- 'Yes'
+prop.table(table(test_df$Fatal))
 
 rownames(test_df) <- 1:1400
 i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
 i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
 test_df[i_fatal, 'Fatal'] <- 'Yes'
+prop.table(table(test_df$Fatal))
 test_df[i_nonFatal, 'Fatal'] <- 'No'
+prop.table(table(test_df$Fatal))
 ```
 # Hide
 
@@ -1518,7 +1536,7 @@ features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
 ```
 
 # unhide
-```{r Submission 30}
+```{r Submission 30 average probability of models}
 # added more fatals/nonfatals and including the testing data in trainin the model
 # using the average probabilityes of rF and xgb
 features = c('NewAge', 'estimate2016', 
@@ -1530,9 +1548,11 @@ test_data <- na.omit(fin_test[, features])
 final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
 
 rF_mod_pred_test <- predict(rF_mod, newdata=test_data, type= 'prob')[,1]
-xgb_pred_test <- predict(xgb, final_test_X)[,-1]
+xgb_pred_test <- predict(xgb, newdata= final_test_X)
+svm_pred_test <- attr(predict(svm_mod, test_data, probability = T),'probabilities')[,2]
 
-p_df <- data.frame(p1,p2)
+
+p_df <- data.frame(rF_mod_pred_test, xgb_pred_test, svm_pred_test)
 p_mean <- apply(p_df,1, mean)
 p_mean_class <- ifelse(p_mean >0.50, 'Yes', 'No')
 
@@ -1555,6 +1575,35 @@ test_df[i_nonFatal, 'Fatal'] <- 'No'
 prop.table(table(test_df$Fatal))
 
 ```
+
+```{r Submission 31}
+# same as above except using only xgb
+features = c('NewAge', 'estimate2016', 
+             'income', 'SubjectRace', 'ShotsClean', 'Year', 'Month',
+             'Day', 'SubjectGender', 'SubjectArmed','NumberOfOfficers', 'mainOfficerRace')
+
+
+```
+
+```{r Submission 32}
+# same as submissino 30 except using intersection of rF and xgb
+features = c('NewAge', 'estimate2016', 
+             'income', 'SubjectRace', 'ShotsClean', 'Year', 'Month',
+             'Day', 'SubjectGender', 'SubjectArmed','NumberOfOfficers', 'mainOfficerRace')
+
+```
+
+
+```{r Submission 33}
+# using the testing fatals/nonfatals in building model
+# taking the average probabilities of rF, svm, and xgb
+features = c('NewAge', 'estimate2016', 
+             'income', 'SubjectRace', 'ShotsClean', 'Year', 'Month',
+             'Day', 'SubjectGender', 'SubjectArmed','NumberOfOfficers', 'mainOfficerRace',
+              'narrativeNA', 'notesNA', 'city_fatal_prop', 'state_fatal_prop')
+
+```
+
 
 # Submission
 ```{r Submissions}
@@ -1583,7 +1632,7 @@ test_df2 <- submission
 test_df2[fatal_index, 'Fatal'] <- 'Yes'
 test_df2[non_fatal_index, 'Fatal'] <- 'No'
 
-write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission29.csv', row.names=F)
+write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission32.csv', row.names=F)
 
 # submission 1: 67%; just said no to everything
 # submission 2: 79%; converted 180 "fatal" rows to 'Yes'
