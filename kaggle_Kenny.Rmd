@@ -127,11 +127,40 @@ i9 <- which(!is.na(str_locate(final_test$FullNarrative, 'mortal')[,1]) == T)
 i10 <- which(!is.na(str_locate(final_test$FullNarrative, 'fatal')[,1]) == T)[-c(6:9)]
 i11 <- which(!is.na(str_locate(final_test$FullNarrative, 'Fatal')[,1]) == T)
 i12 <- which(!is.na(str_locate(final_test$Notes, 'Death')[,1]) == T)
-fatal_index <- unique(c(i,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11,i12))
+i13 <- which(!is.na(str_locate(final_test$NatureOfStop, 'Mental')[,1])==T)
+i14 <- which(!is.na(str_locate(final_test$FullNarrative, 'mortal')[,1]) == T)
+i15 <- c(1285,417,419, 423, 424, 425, 426,433,1027,131,134,
+         145,146,195,273,375,1219,1221,1345,1348,1349,1354,1357,1361,1333, 232,258,
+         510,1359,88,1334,1322,1324,1326,1328,1330,576,1190)
+         
+i16 <-  which(!is.na(str_locate(final_test$Notes, 'fatal')[,1]) == T)
+
+i_names <- c(268,206,207,202,224,267,123,112,254,124,269,187,261,115,196,241,180,132,150,
+               867,875,869,870,104,188,646,647,648,650,652,657,662,663)
+
+fatal_index <- unique(c(i,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11,i12,i13,i14,i15,i16,i_names))
 fatal_ids <- final_test[fatal_index, 'id']
 
+# nonfatals
 non_i1 <- which(!is.na(str_locate(final_test$FullNarrative, 'Non-Fatal')[,1]) == T)
-non_fatal_ids <- final_test[c(556,63,1241,1193,1225, non_i1),'id']
+non_i2 <- which(!is.na(str_locate(final_test$FullNarrative, 'Non-fatal')[,1]) == T)
+non_i3 <- which(!is.na(str_locate(final_test$Notes, 'non')[,1]) == T)[-c(2,8,10)]
+non_i4 <- which(!is.na(str_locate(final_test$Notes, 'No')[,1]) == T)[-c(172,173)]
+non_i5 <- which(!is.na(str_locate(final_test$Notes, 'NO')[,1]) == T)[-c(1,2,79,80,81)]
+non_i6 <- which(!is.na(str_locate(final_test$Notes, 'no hits')[,1]) == T)[-5]
+non_i7 <- which(!is.na(str_locate(final_test$FullNarrative, 'No hits')[,1]) == T)
+
+non_fatal_index <- unique(c(556,63,1241,1193,1225, 1361,496,86,422,428,
+                              429,431,432,490,1217,1218,
+                              1222, 1224, 1225, 1226, 1227,1346, 7,10,14,274, 1076,1104,1112,
+                            1125,1143, 1272,1380,1385, 281, 282,507,503,506,1170,1177,83,848,1325,
+                            60,63, 1321,1194,570,550,1275,1276,1291,1271,1272,484,330,849,
+                            829, 1198,1320,581,546, 259,317,481,485,511,513,539,559,560,563,564,574,
+                            651,655,660,666,
+                            
+                              non_i1, non_i2, non_i3,non_i4, non_i5, non_i6, non_i7))
+
+non_fatal_ids <- final_test[non_fatal_index,'id']
 
 
 # table(data[!is.na(str_locate(data$NatureOfStop, 'Critical')[,1]),]$Fatal)
@@ -139,7 +168,17 @@ non_fatal_ids <- final_test[c(556,63,1241,1193,1225, non_i1),'id']
 # 
 # View(data[which(!is.na(str_locate(data$FullNarrative, 'justif')[,1]) == T),])
 # View(data[which(!is.na(str_locate(data$NatureOfStop, 'health')[,1]) == T),])
-# View(data[which(!is.na(str_locate(data$Notes, 'justif')[,1]) == T),])
+
+# View(data[data$Fatal=='F',])
+# 
+# View(data[which(!is.na(str_locate(data$NatureOfStop, 'Homicide')[,1]) == T),])
+# View(data[which(!is.na(str_locate(data$FullNarrative, 'no hits')[,1]) == T),])
+# View(data[which(!is.na(str_locate(data$Notes, 'Employee')[,1]) == T),])
+# 
+# View(final_test[which(!is.na(str_locate(final_test$NatureOfStop, 'http')[,1]) == T),])
+# View(final_test[which(!is.na(str_locate(final_test$FullNarrative, 'no hits')[,1]) == T),])
+# View(final_test[which(!is.na(str_locate(final_test$Notes, 'no ')[,1]) == T),])
+
 
 # reading some of the actual narratives to confirm fatality
 # View(final_test[i11,])
@@ -383,11 +422,11 @@ clean_up <- function(data, includeNA = F){
   # assigning 0 to NA in order to keep the observations because model.matrix() removes all rows with NA's
   merged$NewAge <- as.numeric(str_extract(merged$SubjectAge, '[0-9]+'))
   merged[is.na(merged$NewAge), 'NewAge'] <- 0
-  merged$AgeGroup <- findInterval(merged$NewAge, c(0, 20, 40, 60, 80))
+  #merged$AgeGroup <- findInterval(merged$NewAge, c(0, 20, 40, 60, 80))
   #merged$AgeGroup <- findInterval(merged$NewAge, c(0, 10, 20,30, 40,50, 60,70, 80))
-  #merged$AgeGroup <- findInterval(merged$NewAge, seq(0,80,5))
+  merged$AgeGroup <- findInterval(merged$NewAge, seq(0,80,5))
   merged[which(merged$NewAge == 0), 'AgeGroup'] <- 0
-  merged$AgeGroup <- as.numeric(merged$AgeGroup)
+  merged$AgeGroup <- as.numeric(as.numeric(merged$AgeGroup))
   merged[is.na(merged$Month), 'Month'] <- 0
   merged$Month <- as.factor(merged$Month)
   merged[is.na(merged$Day), 'Day'] <- 0
@@ -483,6 +522,9 @@ clean_up <- function(data, includeNA = F){
   # state_gini<- read.csv('~/dropbox/stats-101c-kaggle/Datasets/Gini_State.csv')[,-1]
   # merged <- merge(merged, state_gini)
   # 
+  carry_permit <- read.csv('~/dropbox/stats-101c-kaggle/Datasets/CarryPermitRight.csv')
+  merged <- merge(merged, carry_permit)
+  
   return(merged)
 }
 
@@ -679,7 +721,7 @@ training <- impute_clean_up(train)
 # NumberOfOfficers predicts better than MoreThanOneOfficer
 
 set.seed(seed)
-training <- clean_up(data, includeNA=T)
+training <- clean_up(data, includeNA=F)
 write.csv(training, '~/dropbox/stats-101c-kaggle/Datasets/cleaned_merged2.csv', row.names=F)
 testing <- clean_up(final_test)
 write.csv(testing, '~/dropbox/stats-101c-kaggle/Datasets/test_clean_merged.csv', row.names=F)
@@ -716,23 +758,24 @@ merged <- merged[!duplicated(merged$id),]
 
 ```
 
+
+
 ```{r}
-# pick what variables we want to train data on
-# don't think age group is helping
-# use day or weekend? ## month outperforms seasons; day outperforms weekend
-#training[training$AgeGroup==0, 'AgeGroup'] <- 5
-#training$AgeGroup <- as.factor(training$AgeGroup)
 
+# training the model and then using the model to predict the 'U' 
 
-# train_data <- na.omit(training[, c('Fatal', 'SubjectGender', 'SubjectRace',
-#                                        'ShotsClean',
-#                                    'NewAge', 'NumberOfOfficers'
-#                                    ,'Month', 'Day','estimate2016', 'mainOfficerRace', 'income'
-#                                    )]) 
+# training_U <-training[training$Fatal =='U',] 
+# training_U_predicted <- predict(rF_mod, newdata= training_U)
+# table(training_U_predicted)
+# 
+# training_U_forMerging <- training_U %>% select(-Fatal)
+# training_U_forMerging$Fatal <- training_U_predicted
+# 
+# merged_trainTest_U <- rbind(training_w_testing, training_U_forMerging)
 
-  
+write.csv(training_w_testing, '~/dropbox/stats-101c-kaggle/Datasets/kenny_training_w_testing.csv', row.names=F)
 
-write.csv(merged, '~/dropbox/stats-101c-kaggle/Datasets/clean_merged3.csv', row.names=F)
+training <- clean_up(data, includeNA=T)
 
 testing <- clean_up(final_test)
 testing$Fatal <- 'U'
@@ -741,23 +784,66 @@ i_fatal <- as.numeric(rownames(subset(testing, id %in% fatal_ids)))
 i_nonFatal <- as.numeric(rownames(subset(testing, id %in% non_fatal_ids)))
 testing[i_fatal, 'Fatal'] <- 'F'
 testing[i_nonFatal, 'Fatal'] <- 'N'
-testing_F <- testing[testing$Fatal == 'F',][sample(1:191, 70),]
-testing_NF <- testing[testing$Fatal != 'F', -48]
+testing_F <- testing[testing$Fatal == 'F',]
+testing_NF <- testing[testing$Fatal == 'N',]
+testing_U <- testing[testing$Fatal=='U', ]
 
+training_w_testing <- training
 training_w_testing <- rbind(training, testing_F)
+training_w_testing <- rbind(training_w_testing, testing_NF)
+
+# NewAgeCategories <- ifelse(training_w_testing$NewAge >=30, 'Yes', 'No')
+# NewAgeCategories[training_w_testing$NewAge==0] <- 'Unknown'
+
+prop.table(table(predict(rF_mod, testing_F)))
+prop.table(table(predict(rF_mod, testing_NF)))
+
+p <- predict(xgb, model.matrix(Fatal ~., testing_F[,features])[,-1], type='class')
+prop.table(table(ifelse(p>0.5, 'F', 'N')))
+
+features = c('Fatal','NewAge', 'estimate2016', 
+             'income', 'SubjectRace', 'ShotsClean', 'Year', 'Month',
+             'Day', 'SubjectGender', 'SubjectArmed','NumberOfOfficers', 'mainOfficerRace')
+train_data <- na.omit(training_w_testing[, features])
+
+# train_data <- na.omit(training[,c('Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
+#                                     'NewAge','NumberOfOfficers', 'ShotsClean',
+#                                    'Year','Seasons', 'estimate2016' ,'income',
+#                                    'X2010','X2011','X2012','X2013','X2014','X2015','X2016')])
+
+# average section
+testing_X = train_data_test
+testing_y = train_data_test$Fatal
+
+p1 <- predict(rF_mod, testing_X, type= 'prob')[,1]
+p2 <- predict(xgb, model.matrix(Fatal ~., testing_X[,features])[,-1])
+#p3 <- predict(svm_mod, testing_X, type = 'probability')
+p_df <- data.frame(p1,p2)
+p_mean <- apply(p_df,1, mean)
+p_mean_class <- ifelse(p_mean >0.50, 'F', 'N')
+table(p_mean_class, testing_y)
 
 
-train_data <- na.omit(training[,c('Fatal','SubjectRace', 'SubjectGender', 'SubjectArmed',
-                                   'scaled_log_new_age', 'NumberOfOfficers', 'ShotsClean',
-                                   'Year','Seasons','estimate2016' ,'scaled_log_income',
-                                   'city_fatal_prop')])
+# intersection method
+xgb_pred <- predict(xgb, model.matrix(Fatal ~., testing_X[,features])[,-1])
+xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'Yes', 'No')
+rF_mod_pred_test <- predict(rF_mod, newdata = testing_X)
+rF_mod_pred_test <- ifelse(rF_mod_pred_test == 'F', 'Yes', 'No')
+
+test_df_xgb <- data.frame('id'= training_w_testing[-train_i,]$id, 
+                      'Fatal' = xgb_pred_class)
+test_df_rF <- data.frame('id' = training_w_testing[-train_i,]$id,
+                         'Fatal' = rF_mod_pred_test)
+xgb_yes_rows <- which(test_df_xgb$Fatal=='Yes')
+rF_yes_rows <- which(test_df_rF$Fatal=='Yes')
+intersect_xgb_rF <- intersect(xgb_yes_rows, rF_yes_rows)
+df_intersect <- rep('N', length(xgb_pred_class))
+
+df_intersect[intersect_xgb_rF] <- 'F'
+table(df_intersect, testing_y)
 
 
-#prop.table(table(predict(rF_mod, newdata=testing)))
-#train_data[which(train_data$mainOfficerGender=='N'), 'mainOfficerGender'] <- 'M'
-#train_data$mainOfficerGender <- droplevels(train_data$mainOfficerGender)
-
-seed <- 12345
+seed <- 123
 n <- nrow(train_data)
 set.seed(seed)
 train_i <- sample(1:n,n, replace=F )
@@ -788,15 +874,12 @@ View(rf_model2$results)
 
 library(randomForest)
 set.seed(seed)
-rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=1000, 
-                       mtry=4, importance=T, maxnode=150)
+rF_mod <- randomForest(Fatal ~., data = train_data_train,ntree=500, 
+                       mtry=4, importance=T, nodesize=20)
 rF_mod
 rF_mod_pred_test <- predict(rF_mod, newdata = train_data_test)
-#rF_mod_pred_test <- predict(rF_mod, newdata = training2[,-4])
 table(rF_mod_pred_test, train_data_test$Fatal)
-#table(rF_mod_pred_test, training2$Fatal )
 mean(rF_mod_pred_test == train_data_test$Fatal)
-#mean(rF_mod_pred_test == training2$Fatal, na.rm=T)
 prop.table(table(rF_mod_pred_test))
 importance(rF_mod)
 ```
@@ -863,8 +946,8 @@ svm_model<-train(x = train_X,
                 prox=TRUE)
 View(svm_model$results)
 
-svm_mod <- svm(Fatal ~ ., data = train_data_train, cost=100, gamma = 0.01)
-svm_mod_pred_test <- predict(svm_mod, newdata = train_data_test)
+svm_mod <- svm(Fatal ~ ., data = train_data_train, cost=5, gamma = 0.01, probability = T)
+svm_mod_pred_test <- predict(svm_mod, newdata = train_data_test, type='probability')
 table(svm_mod_pred_test, train_data_test$Fatal)
 mean(svm_mod_pred_test == train_data_test$Fatal)
 
@@ -877,9 +960,9 @@ library(caret)
 # first gridsearch for best params
 set.seed(seed)
 xgb_grid_1 = expand.grid(
-  nrounds = seq(1,81,5),
-  eta = c(0.1),
-  max_depth = c(3:7),
+  nrounds = seq(1,500,10),
+  eta = c(0.1,0.01),
+  max_depth = c(3:10),
   gamma = 1,
   colsample_bytree=1,
   min_child_weight = 1,
@@ -913,7 +996,7 @@ library(xgboost)
 xgb_params_1 = list(
   objective = "binary:logistic",                                              
   eta = 0.1,                                                                 
-  max.depth = 4,                                                                                   
+  max.depth = 3,                                                                                   
   nthread=3
 )
 # when looking at roc metric, I want a high sensitivity?
@@ -921,9 +1004,9 @@ xgb_params_1 = list(
 # specificty: model will predict more 'N', will get more true negatives but less false positives
 set.seed(seed)
 train_data_train$response_dummy <- ifelse(train_data_train$Fatal=='F', 1,0) #1 means fatal
-xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=46, subsample = 0.9, gamma = 0)
+xgb <- xgboost(data = train_X, label = train_data_train$response_dummy, params = xgb_params_1, nrounds=46, subsample = 1, gamma = 0)
 xgb_pred <- predict(xgb, test_X)
-xgb_pred_class <- ifelse(xgb_pred >= 0.50, 'F', 'N')
+xgb_pred_class <- ifelse(xgb_pred >= 0.51, 'F', 'N')
 table(xgb_pred_class, train_data_test$Fatal)
 mean(xgb_pred_class==train_data_test$Fatal)
 xgb.importance(model=xgb)
@@ -1340,7 +1423,7 @@ intersect_svm <- intersect(intersect_xgb_rF, svm_yes_rows)
 test_df <- data.frame('id' = fin_test$id,
                       'Fatal' ='No')
 test_df$Fatal <- as.character(test_df$Fatal)
-test_df[intersect_xgb_rF, 'Fatal'] <- 'Yes'
+test_df[xgb_yes_rows, 'Fatal'] <- 'Yes'
 
 rownames(test_df) <- 1:1400
 i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
@@ -1348,6 +1431,7 @@ i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
 test_df[i_fatal, 'Fatal'] <- 'Yes'
 test_df[i_nonFatal, 'Fatal'] <- 'No'
 ```
+# Hide
 
 ```{r Submission 19}
 # same as 18 except using intersect_xgb_rF rather than intersect_svm
@@ -1389,6 +1473,89 @@ features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
 fin_test[is.na(fin_test$city_fatal_prop), 'city_fatal_prop'] <- mean(fin_test$city_fatal_prop, na.rm=T )
 ```
 
+```{r Submission 24}
+# using the fatal observations from testing set and adding that to training the model
+# using intersection between xgb and rF
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                    'NewAge','NumberOfOfficers', 'ShotsClean',
+                                   'Year','Seasons', 'estimate2016' ,'income',
+                                   'state_fatal_prop', 'city_fatal_prop')
+fin_test[is.na(fin_test$city_fatal_prop), 'city_fatal_prop'] <- mean(fin_test$city_fatal_prop, na.rm=T )
+fin_test[is.na(fin_test$state_fatal_prop), 'state_fatal_prop'] <- mean(fin_test$state_fatal_prop, na.rm=T )
+
+```
+
+```{r Submission 25}
+# using fatal observations from testing set and using rF
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                    'NewAge','NumberOfOfficers', 'ShotsClean',
+                                   'Year','Seasons', 'estimate2016' ,'income',
+                                   'X2010','X2011','X2012','X2013','X2014','X2015','X2016')
+```
+
+```{r Submission 26}
+# same as above but using xgb
+```
+
+```{r Submission 27}
+# using testing fatals and unknowns in training
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                    'NewAge','NumberOfOfficers', 'ShotsClean',
+                                   'Year','Seasons', 'estimate2016' ,'income',
+                                   'X2010','X2011','X2012','X2013','X2014','X2015','X2016')
+```
+
+```{r Submission 28}
+# finding new fatal/nonfatal indexes and just setting those indexes. not using a model
+```
+
+```{r Submission 29}
+# like submission 28, but fitting a model
+features = c('SubjectRace', 'SubjectGender', 'SubjectArmed',
+                                    'NewAge','NumberOfOfficers', 'ShotsClean',
+                                   'Year','Seasons', 'estimate2016' ,'income',
+                                   'X2010','X2011','X2012','X2013','X2014','X2015','X2016')
+```
+
+# unhide
+```{r Submission 30}
+# added more fatals/nonfatals and including the testing data in trainin the model
+# using the average probabilityes of rF and xgb
+features = c('NewAge', 'estimate2016', 
+             'income', 'SubjectRace', 'ShotsClean', 'Year', 'Month',
+             'Day', 'SubjectGender', 'SubjectArmed','NumberOfOfficers', 'mainOfficerRace')
+
+fin_test <- clean_up(final_test)
+test_data <- na.omit(fin_test[, features])
+final_test_X <- model.matrix( ~ ., data = test_data)[,-1]
+
+rF_mod_pred_test <- predict(rF_mod, newdata=test_data, type= 'prob')[,1]
+xgb_pred_test <- predict(xgb, final_test_X)[,-1]
+
+p_df <- data.frame(p1,p2)
+p_mean <- apply(p_df,1, mean)
+p_mean_class <- ifelse(p_mean >0.50, 'Yes', 'No')
+
+mean_yes_rows <- which(p_mean_class=='Yes')
+
+
+test_df <- data.frame('id' = fin_test$id,
+                      'Fatal' ='No')
+test_df$Fatal <- as.character(test_df$Fatal)
+test_df[mean_yes_rows, 'Fatal'] <- 'Yes'
+prop.table(table(test_df$Fatal))
+
+rownames(test_df) <- 1:1400
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+prop.table(table(test_df$Fatal))
+
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+prop.table(table(test_df$Fatal))
+
+```
+
 # Submission
 ```{r Submissions}
 submission <- data.frame(id = final_test$id,
@@ -1404,7 +1571,19 @@ submission[which(submission$id =='9055'),]
 test_df[which(test_df$id=='9055'),]
 # intersect(i, fatal_index)
 
-write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission23.csv', row.names=F)
+
+test_df <- submission
+rownames(test_df) <- 1:1400
+i_fatal <- as.numeric(rownames(subset(test_df, id %in% fatal_ids)))
+i_nonFatal <- as.numeric(rownames(subset(test_df, id %in% non_fatal_ids)))
+test_df[i_fatal, 'Fatal'] <- 'Yes'
+test_df[i_nonFatal, 'Fatal'] <- 'No'
+
+test_df2 <- submission
+test_df2[fatal_index, 'Fatal'] <- 'Yes'
+test_df2[non_fatal_index, 'Fatal'] <- 'No'
+
+write.csv(test_df, '~/dropbox/stats-101c-kaggle/Submissions/Submission29.csv', row.names=F)
 
 # submission 1: 67%; just said no to everything
 # submission 2: 79%; converted 180 "fatal" rows to 'Yes'
