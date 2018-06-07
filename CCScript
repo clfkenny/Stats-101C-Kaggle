@@ -1,0 +1,59 @@
+library(dplyr)
+library(tidyr)
+library(reshape2)
+library(readxl)
+
+cleaned_merged1 <- read_csv("https://raw.githubusercontent.com/clfkenny/Stats-101C-Kaggle/master/Datasets/cleaned_merged1.csv?token=AlANUMVvUiwWWOcmkTKPlsCoZxWBLvfLks5bHGqOwA%3D%3D")
+
+clean <- cleaned_merged1 %>% select(-id)
+City_med_income <- read_excel("Desktop/City_med_income.xlsx")
+cleaned_merged2 <- inner_join(clean, City_med_income)
+Gini_State <- read_excel("~/Desktop/Gini_State.xlsx")
+Gini_State$state <- tolower(gsub(" ", "", Gini_State$state))
+write.csv(Gini_State, "~/Downloads/Gini_State.csv")
+cleaned_merged3 <- inner_join(cleaned_merged2, Gini_State)
+Gini_Index_City <- read_excel("~/Desktop/Gini_Index_City.xlsx", col_names = FALSE)
+
+#Counting n of Gender and Races
+library(stringr)
+cleaned_merged4 <- cleaned_merged3
+cleaned_merged4$OfficerGender <- gsub("MALE", "M", cleaned_merged4$OfficerGender)
+cleaned_merged4$OfficerGender <- gsub("FEMALE", "F", cleaned_merged4$OfficerGender)
+cleaned_merged4$OfficerGender <- gsub("Unknown", "F", cleaned_merged4$OfficerGender)
+cleaned_merged4$n.M.police <- str_count(cleaned_merged4$OfficerGender, "M")
+cleaned_merged4$n.F.police <- str_count(cleaned_merged4$OfficerGender, "F")
+cleaned_merged4$n.U.police <- str_count(cleaned_merged4$OfficerGender, "U")
+table(cleaned_merged4$OfficerRace)
+cleaned_merged4$OfficerRace <- gsub("WHITE", "W", cleaned_merged4$OfficerRace)
+cleaned_merged4$OfficerRace <- gsub("BLACK", "B", cleaned_merged4$OfficerRace)
+cleaned_merged4$OfficerRace <- gsub("Unknown", "U", cleaned_merged4$OfficerRace)
+cleaned_merged4$OfficerRace <- gsub("ASIAN", "A", cleaned_merged4$OfficerRace)
+cleaned_merged4$OfficerRace <- gsub("H", "L", cleaned_merged4$OfficerRace)
+cleaned_merged4$n.W.police <- str_count(cleaned_merged4$OfficerRace, "W")
+cleaned_merged4$n.B.police <- str_count(cleaned_merged4$OfficerRace, "B")
+cleaned_merged4$n.A.police <- str_count(cleaned_merged4$OfficerRace, "A")
+cleaned_merged4$n.L.police <- str_count(cleaned_merged4$OfficerRace, "L")
+cleaned_merged4$n.O.police <- str_count(cleaned_merged4$OfficerRace, "O")
+cleaned_merged4$n.U.police <- str_count(cleaned_merged4$OfficerRace, "U")
+
+#Gun Ownership data
+Gun.Stats <- read.csv("~/Downloads/004-Crime and Gun Statistics.csv", stringsAsFactors=FALSE)
+names(Gun.Stats)[1] <- "state"
+Gun.Stats$Gun.Ownership..2007. <- gsub("%", "", Gun.Stats$Gun.Ownership..2007.)
+Gun.Stats$Gun.Ownership..2007. <- as.numeric(Gun.Stats$Gun.Ownership..2007.)
+Gun.Stats$state <- tolower(gsub(" ", "", Gun.Stats$state))
+n.police <- cleaned_merged4[, 39:46]
+names(n.police)[3] <- "n.U.police.gender"
+n.police$id <- cleaned_merged1$id
+
+
+#write.csv(n.police, "n.police.CC.csv")
+#write.csv(Gun.Stats, "Gun.Stats.csv")
+
+CarryPermitRight <- read_csv("~/Downloads/CarryPermitRight.csv")
+merge(cleaned_merged4,CarryPermitRight, by = c())
+
+melt.permit <- melt(CarryPermitRight, id=c("state"))
+carrypermit.omited <- na.omit(melt.permit)
+table(carrypermit.omited$value) #Check correct numbers
+merged.data <- merge(INSERT.ORIGINAL.DATA, carrypermit.omited, by = c("year", "state"))
